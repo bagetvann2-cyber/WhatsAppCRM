@@ -11,9 +11,21 @@ let organizationId: string;
 const currentUserMock = vi.hoisted(() => vi.fn());
 vi.mock("@/lib/session", () => ({ currentUser: currentUserMock }));
 
+let operatorId: string;
+
 beforeAll(async () => {
   await dropTestOrg(phoneNumberId);
   organizationId = (await createTestOrg(phoneNumberId)).id;
+
+  // Автор исходящего — настоящая строка в User: сообщение ссылается на него.
+  await prisma.user.deleteMany({ where: { email: "operator@out.test" } });
+  const user = await prisma.user.create({
+    data: { email: "operator@out.test", passwordHash: "x", name: "Ержан" },
+  });
+  operatorId = user.id;
+  await prisma.membership.create({
+    data: { userId: operatorId, organizationId, role: "OPERATOR" },
+  });
 });
 
 async function seed(windowExpiresAt: Date) {
@@ -27,7 +39,7 @@ async function seed(windowExpiresAt: Date) {
 
 function signedIn() {
   currentUserMock.mockResolvedValue({
-    user: { id: "u1", email: "operator@test.kz" },
+    user: { id: operatorId, email: "operator@out.test" },
     organization: { id: organizationId, name: "Тест" },
     role: "OPERATOR",
   });
@@ -43,6 +55,7 @@ afterEach(async () => {
 
 afterAll(async () => {
   await dropTestOrg(phoneNumberId);
+  await prisma.user.deleteMany({ where: { email: "operator@out.test" } });
   await prisma.$disconnect();
 });
 

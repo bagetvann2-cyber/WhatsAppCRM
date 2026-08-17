@@ -226,6 +226,7 @@ model User {
   memberships  Membership[]
   sessions     Session[]
   assigned     Conversation[]
+  sent         Message[]
 }
 
 /// Связь пользователя с организацией и его роль в ней.
@@ -350,6 +351,11 @@ model Message {
   timestamp      DateTime
   createdAt      DateTime         @default(now())
 
+  /// Кто отправил, если это человек. У автоответа, рассылки и ИИ-помощника
+  /// автора нет — по этому же признаку они не попадают в нагрузку операторов.
+  authorId       String?
+  author         User?            @relation(fields: [authorId], references: [id], onDelete: SetNull)
+
   /// Идентификатор файла у Meta. Она удаляет медиа через 30 дней,
   /// поэтому копию храним у себя, а id оставляем для повторной попытки.
   mediaId    String?
@@ -365,4 +371,5 @@ model Message {
   voice      Boolean @default(false)
 
   @@index([conversationId, timestamp])
+  @@index([authorId])
 }

@@ -115,6 +115,7 @@ export async function POST(request: Request): Promise<Response> {
           text: message.text,
           status: "sent",
           timestamp: now,
+          authorId: me.user.id,
         },
       });
     } else {
@@ -138,6 +139,7 @@ export async function POST(request: Request): Promise<Response> {
           text: message.caption,
           status: "sent",
           timestamp: now,
+          authorId: me.user.id,
           mediaId,
           mimeType: message.file.mimeType,
           filename: kind === "document" ? message.file.filename : null,

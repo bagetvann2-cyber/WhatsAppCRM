@@ -137,6 +137,17 @@ export function SparkIcon(props: SVGProps<SVGSVGElement>) {
   );
 }
 
+export function ReportIcon(props: SVGProps<SVGSVGElement>) {
+  return (
+    <Icon {...props}>
+      <path d="M4.5 19.5h15" />
+      <rect x="6" y="11" width="3.5" height="5.5" rx="1" />
+      <rect x="11.5" y="6.5" width="3.5" height="10" rx="1" />
+      <path d="M18.5 13v3.5" />
+    </Icon>
+  );
+}
+
 export function TeamIcon(props: SVGProps<SVGSVGElement>) {
   return (
     <Icon {...props}>
