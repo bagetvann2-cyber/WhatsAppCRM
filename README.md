@@ -1,36 +1,85 @@
-This is a [Next.js](https://nextjs.org) project bootstrapped with [`create-next-app`](https://nextjs.org/docs/app/api-reference/cli/create-next-app).
+# WhatsApp CRM
 
-## Getting Started
+Платформа WhatsApp Business для казахстанского бизнеса. ТЗ — `docs/TZ-WhatsApp-CRM.md`.
 
-First, run the development server:
+Сейчас в репозитории вертикальный срез: приём вебхука от Meta → запись в PostgreSQL →
+показ диалога в браузере → ответ оттуда. План — `docs/plans/2026-08-16-whatsapp-vertical-slice.md`.
 
-```bash
+## Стек
+
+Next.js 16 (App Router, TypeScript) · Prisma 7 + PostgreSQL 17 · Vitest · SSE для живых обновлений.
+
+## Запуск разработки
+
+```powershell
+cd "C:\Users\BagetPC_2\Desktop\WhatsAppCRM"
 npm run dev
-# or
-yarn dev
-# or
-pnpm dev
-# or
-bun dev
 ```
 
-Open [http://localhost:3000](http://localhost:3000) with your browser to see the result.
+Приложение на `http://localhost:3000`.
 
-You can start editing the page by modifying `app/page.tsx`. The page auto-updates as you edit the file.
+Тесты (поднимают реальную локальную базу):
 
-This project uses [`next/font`](https://nextjs.org/docs/app/building-your-application/optimizing/fonts) to automatically optimize and load [Geist](https://vercel.com/font), a new font family for Vercel.
+```powershell
+npm test
+```
 
-## Learn More
+## Переменные окружения
 
-To learn more about Next.js, take a look at the following resources:
+Все секреты — в `.env.local`, файл в `.gitignore` и в git не попадает.
 
-- [Next.js Documentation](https://nextjs.org/docs) - learn about Next.js features and API.
-- [Learn Next.js](https://nextjs.org/learn) - an interactive Next.js tutorial.
+| Переменная | Откуда взять |
+|---|---|
+| `DATABASE_URL` | локальный Postgres, база `whatsapp_crm_dev` |
+| `WHATSAPP_APP_SECRET` | Meta → App settings → Basic → App secret |
+| `WHATSAPP_TOKEN` | Meta → WhatsApp → API Setup → Temporary access token |
+| `WHATSAPP_PHONE_NUMBER_ID` | Meta → WhatsApp → API Setup → Phone number ID |
+| `WHATSAPP_VERIFY_TOKEN` | придумывается произвольно, вводится в настройках вебхука |
+| `GRAPH_API_VERSION` | версия из примера curl в консоли Meta, например `v22.0` |
 
-You can check out [the Next.js GitHub repository](https://github.com/vercel/next.js) - your feedback and contributions are welcome!
+Prisma читает `.env.local` через `prisma.config.ts` — отдельный `.env` не нужен.
 
-## Deploy on Vercel
+## Подключение вебхука Meta
 
-The easiest way to deploy your Next.js app is to use the [Vercel Platform](https://vercel.com/new?utm_medium=default-template&filter=next.js&utm_source=create-next-app&utm_campaign=create-next-app-readme) from the creators of Next.js.
+Meta стучится по HTTPS, поэтому localhost наружу отдаётся туннелем:
 
-Check out our [Next.js deployment documentation](https://nextjs.org/docs/app/building-your-application/deploying) for more details.
+```powershell
+cloudflared tunnel --url http://localhost:3000
+```
+
+Выданный адрес вида `https://что-то.trycloudflare.com` вписывается в
+Meta → WhatsApp → Configuration → Webhook:
+
+- **Callback URL:** `https://что-то.trycloudflare.com/api/webhook`
+- **Verify token:** значение `WHATSAPP_VERIFY_TOKEN`
+- в блоке Webhook fields включить подписку **messages**
+
+Адрес туннеля меняется при каждом перезапуске `cloudflared` — Callback URL придётся
+переподключать. Временный токен Meta живёт 24 часа; постоянный выпускается только
+в верифицированном Business Manager заказчика.
+
+## Что уже работает
+
+- проверка подписи `x-hub-signature-256` от Meta;
+- GET-верификация и POST-приём вебхуков, идемпотентность по `wamid`;
+- разбор входящих сообщений и статусов доставки;
+- список диалогов, переписка, отправка ответа, обновление без перезагрузки;
+- блокировка свободного ответа по истечении 24-часового окна.
+
+## Чего ещё нет
+
+Авторизация и мультитенантность, Embedded Signup, шаблоны и рассылки, медиафайлы,
+интеграции с amoCRM и Bitrix24, биллинг. Это модули M-01…M-09 из ТЗ, планируются отдельно.
+
+## Особенности локальной отладки
+
+Колонка `windowExpiresAt` хранится без часового пояса, а Node читает её как UTC.
+Если менять окно вручную через `psql`, время задавать явно в UTC:
+
+```powershell
+$env:PGPASSWORD='postgres'
+$sql = @'
+UPDATE "Conversation" SET "windowExpiresAt" = (NOW() AT TIME ZONE 'UTC') - INTERVAL '1 hour';
+'@
+$sql | & "C:\Program Files\PostgreSQL\17\bin\psql.exe" -U postgres -h localhost -d whatsapp_crm_dev -q
+```
