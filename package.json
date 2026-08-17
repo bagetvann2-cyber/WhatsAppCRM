@@ -1,15 +1,21 @@
 {
-  "name": "whatsapp-crm-tmp",
+  "name": "whatsapp-crm",
   "version": "0.1.0",
   "private": true,
   "scripts": {
     "dev": "next dev",
     "build": "next build",
     "start": "next start",
-    "lint": "eslint"
+    "lint": "eslint",
+    "test": "dotenv -e .env.local -- vitest run",
+    "test:watch": "dotenv -e .env.local -- vitest",
+    "postinstall": "prisma generate"
   },
   "dependencies": {
+    "@prisma/adapter-pg": "^7.9.1",
+    "@prisma/client": "^7.9.1",
     "next": "16.3.1",
+    "prisma": "^7.9.1",
     "react": "19.2.8",
     "react-dom": "19.2.8"
   },
@@ -18,9 +24,13 @@
     "@types/node": "^20",
     "@types/react": "^19",
     "@types/react-dom": "^19",
+    "@vitejs/plugin-react": "^6.0.5",
+    "dotenv": "^17.4.2",
+    "dotenv-cli": "^11.0.0",
     "eslint": "^9",
     "eslint-config-next": "16.3.1",
     "tailwindcss": "^4",
-    "typescript": "^5"
+    "typescript": "^5",
+    "vitest": "^4.1.10"
   }
 }

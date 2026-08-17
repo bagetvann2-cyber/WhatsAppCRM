@@ -1,0 +1,51 @@
+// Схема базы. Документация: https://pris.ly/d/prisma-schema
+
+generator client {
+  provider = "prisma-client"
+  output   = "../src/generated/prisma"
+}
+
+datasource db {
+  provider = "postgresql"
+}
+
+enum MessageDirection {
+  INBOUND
+  OUTBOUND
+}
+
+model Contact {
+  id            String         @id @default(cuid())
+  waId          String         @unique
+  name          String?
+  createdAt     DateTime       @default(now())
+  conversations Conversation[]
+}
+
+model Conversation {
+  id              String    @id @default(cuid())
+  contactId       String
+  contact         Contact   @relation(fields: [contactId], references: [id])
+  phoneNumberId   String
+  lastMessageAt   DateTime  @default(now())
+  windowExpiresAt DateTime?
+  messages        Message[]
+
+  @@unique([contactId, phoneNumberId])
+  @@index([lastMessageAt])
+}
+
+model Message {
+  id             String           @id @default(cuid())
+  wamid          String           @unique
+  conversationId String
+  conversation   Conversation     @relation(fields: [conversationId], references: [id])
+  direction      MessageDirection
+  type           String
+  text           String?
+  status         String?
+  timestamp      DateTime
+  createdAt      DateTime         @default(now())
+
+  @@index([conversationId, timestamp])
+}
