@@ -14,32 +14,125 @@ enum MessageDirection {
   OUTBOUND
 }
 
-model Contact {
+enum Role {
+  OWNER
+  ADMIN
+  OPERATOR
+}
+
+/// Компания-клиент платформы. Всё остальное принадлежит организации:
+/// ни один запрос к данным не выполняется без привязки к ней.
+model Organization {
   id            String         @id @default(cuid())
-  waId          String         @unique
-  name          String?
+  name          String
+  hideCustomerNumbers Boolean  @default(false)
   createdAt     DateTime       @default(now())
+  memberships   Membership[]
+  invites       Invite[]
+  contacts      Contact[]
   conversations Conversation[]
+  numbers       WhatsappNumber[]
+}
+
+/// Подключённый номер WhatsApp. По нему входящий вебхук находит компанию:
+/// Meta присылает phone_number_id, всё остальное выводится из него.
+model WhatsappNumber {
+  id             String       @id @default(cuid())
+  organizationId String
+  organization   Organization @relation(fields: [organizationId], references: [id], onDelete: Cascade)
+  phoneNumberId  String       @unique
+  displayNumber  String?
+  qualityRating  String?
+  createdAt      DateTime     @default(now())
+
+  @@index([organizationId])
+}
+
+model User {
+  id           String       @id @default(cuid())
+  email        String       @unique
+  passwordHash String
+  name         String?
+  createdAt    DateTime     @default(now())
+  memberships  Membership[]
+  sessions     Session[]
+}
+
+/// Связь пользователя с организацией и его роль в ней.
+/// Один человек может работать в нескольких компаниях.
+model Membership {
+  id             String       @id @default(cuid())
+  userId         String
+  user           User         @relation(fields: [userId], references: [id], onDelete: Cascade)
+  organizationId String
+  organization   Organization @relation(fields: [organizationId], references: [id], onDelete: Cascade)
+  role           Role
+  createdAt      DateTime     @default(now())
+
+  @@unique([userId, organizationId])
+  @@index([organizationId])
+}
+
+model Session {
+  id        String   @id @default(cuid())
+  token     String   @unique
+  userId    String
+  user      User     @relation(fields: [userId], references: [id], onDelete: Cascade)
+  expiresAt DateTime
+  createdAt DateTime @default(now())
+
+  @@index([userId])
+}
+
+/// Приглашение сотрудника одноразовой ссылкой — почта не нужна,
+/// ссылку владелец передаёт сам.
+model Invite {
+  id             String       @id @default(cuid())
+  token          String       @unique
+  organizationId String
+  organization   Organization @relation(fields: [organizationId], references: [id], onDelete: Cascade)
+  role           Role
+  hint           String?
+  expiresAt      DateTime
+  acceptedAt     DateTime?
+  createdAt      DateTime     @default(now())
+
+  @@index([organizationId])
+}
+
+model Contact {
+  id             String         @id @default(cuid())
+  organizationId String
+  organization   Organization   @relation(fields: [organizationId], references: [id], onDelete: Cascade)
+  waId           String
+  name           String?
+  createdAt      DateTime       @default(now())
+  conversations  Conversation[]
+
+  @@unique([organizationId, waId])
+  @@index([organizationId])
 }
 
 model Conversation {
-  id              String    @id @default(cuid())
+  id              String       @id @default(cuid())
+  organizationId  String
+  organization    Organization @relation(fields: [organizationId], references: [id], onDelete: Cascade)
   contactId       String
-  contact         Contact   @relation(fields: [contactId], references: [id])
+  contact         Contact      @relation(fields: [contactId], references: [id], onDelete: Cascade)
   phoneNumberId   String
-  lastMessageAt   DateTime  @default(now())
+  lastMessageAt   DateTime     @default(now())
   windowExpiresAt DateTime?
   messages        Message[]
 
   @@unique([contactId, phoneNumberId])
-  @@index([lastMessageAt])
+  @@index([organizationId, lastMessageAt])
 }
 
 model Message {
   id             String           @id @default(cuid())
   wamid          String           @unique
   conversationId String
-  conversation   Conversation     @relation(fields: [conversationId], references: [id])
+  conversation   Conversation     @relation(fields: [conversationId], references: [id], onDelete: Cascade)
   direction      MessageDirection
   type           String
   text           String?

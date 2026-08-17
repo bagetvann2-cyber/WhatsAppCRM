@@ -3,17 +3,35 @@ import type { IncomingMessage, StatusUpdate } from "@/lib/whatsapp/parse";
 
 const WINDOW_HOURS = 24;
 
+export type IngestResult =
+  | { stored: true; conversationId: string; created: boolean; organizationId: string }
+  | { stored: false; reason: "unknown-number" };
+
 /**
- * Сохраняет входящее сообщение. Повторная доставка того же wamid
- * не создаёт дубликат — Meta шлёт вебхук повторно при любом ответе кроме 200.
+ * Сохраняет входящее сообщение. Компания определяется по phone_number_id:
+ * Meta присылает его в каждом вебхуке, и это единственная связь входящего
+ * сообщения с конкретным клиентом платформы.
+ *
+ * Повторная доставка того же wamid не создаёт дубликат — Meta шлёт вебхук
+ * повторно при любом ответе кроме 200.
  */
-export async function saveIncomingMessage(
-  message: IncomingMessage,
-): Promise<{ conversationId: string; created: boolean }> {
+export async function saveIncomingMessage(message: IncomingMessage): Promise<IngestResult> {
+  const number = await prisma.whatsappNumber.findUnique({
+    where: { phoneNumberId: message.phoneNumberId },
+  });
+
+  // Вебхук на номер, которого мы не знаем: чужое приложение или номер уже отключён.
+  // Молча пропускаем — иначе чужие данные попадут в чужую организацию.
+  if (!number) {
+    return { stored: false, reason: "unknown-number" };
+  }
+
+  const organizationId = number.organizationId;
+
   const contact = await prisma.contact.upsert({
-    where: { waId: message.from },
+    where: { organizationId_waId: { organizationId, waId: message.from } },
     update: message.profileName ? { name: message.profileName } : {},
-    create: { waId: message.from, name: message.profileName },
+    create: { organizationId, waId: message.from, name: message.profileName },
   });
 
   const windowExpiresAt = new Date(message.timestamp.getTime() + WINDOW_HOURS * 3600 * 1000);
@@ -27,6 +45,7 @@ export async function saveIncomingMessage(
     },
     update: { lastMessageAt: message.timestamp, windowExpiresAt },
     create: {
+      organizationId,
       contactId: contact.id,
       phoneNumberId: message.phoneNumberId,
       lastMessageAt: message.timestamp,
@@ -36,7 +55,7 @@ export async function saveIncomingMessage(
 
   const existing = await prisma.message.findUnique({ where: { wamid: message.wamid } });
   if (existing) {
-    return { conversationId: conversation.id, created: false };
+    return { stored: true, conversationId: conversation.id, created: false, organizationId };
   }
 
   await prisma.message.create({
@@ -50,7 +69,7 @@ export async function saveIncomingMessage(
     },
   });
 
-  return { conversationId: conversation.id, created: true };
+  return { stored: true, conversationId: conversation.id, created: true, organizationId };
 }
 
 /** Обновляет статус доставки. Статус может прийти раньше, чем мы узнали о сообщении. */

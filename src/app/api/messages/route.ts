@@ -1,8 +1,14 @@
 import { prisma } from "@/lib/db";
 import { messageEvents } from "@/lib/events";
+import { currentUser } from "@/lib/session";
 import { sendTextMessage } from "@/lib/whatsapp/client";
 
 export async function POST(request: Request): Promise<Response> {
+  const me = await currentUser();
+  if (!me) {
+    return Response.json({ error: "Нужно войти в кабинет" }, { status: 401 });
+  }
+
   const body = (await request.json().catch(() => null)) as {
     conversationId?: string;
     text?: string;
@@ -13,8 +19,10 @@ export async function POST(request: Request): Promise<Response> {
     return Response.json({ error: "Укажите диалог и текст сообщения" }, { status: 400 });
   }
 
-  const conversation = await prisma.conversation.findUnique({
-    where: { id: body.conversationId },
+  // Организация в условии выборки: диалог чужой компании просто не найдётся,
+  // и ответ неотличим от несуществующего — чужие id не подтверждаются.
+  const conversation = await prisma.conversation.findFirst({
+    where: { id: body.conversationId, organizationId: me.organization.id },
     include: { contact: true },
   });
 

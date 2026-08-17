@@ -10,6 +10,7 @@ import { WindowTimer } from "@/components/WindowTimer";
 import { BackIcon } from "@/components/icons";
 import { getConversation, listConversations, type ThreadMessage } from "@/lib/conversations";
 import { dayKey, dayLabel, formatPhone, initials } from "@/lib/format";
+import { requireUser } from "@/lib/session";
 
 export const dynamic = "force-dynamic";
 
@@ -32,13 +33,14 @@ function groupByDay(messages: ThreadMessage[]) {
 }
 
 export default async function ChatPage({ params, searchParams }: PageProps<"/chat/[id]">) {
+  const { organization, user, role } = await requireUser();
   const { id } = await params;
   const { q } = await searchParams;
   const query = typeof q === "string" ? q : "";
 
   const [conversation, conversations] = await Promise.all([
-    getConversation(id),
-    listConversations(query),
+    getConversation(organization.id, id),
+    listConversations(organization.id, query),
   ]);
 
   if (!conversation) {
@@ -56,7 +58,14 @@ export default async function ChatPage({ params, searchParams }: PageProps<"/cha
       <Shell
         mobile="thread"
         sidebar={
-          <ConversationList conversations={conversations} activeId={conversation.id} query={query} />
+          <ConversationList
+            conversations={conversations}
+            activeId={conversation.id}
+            query={query}
+            organizationName={organization.name}
+            userLabel={user.name ?? user.email}
+            role={role}
+          />
         }
       >
         <header className="flex items-center gap-3 border-b border-line bg-panel px-4 py-3 md:px-6">

@@ -1,19 +1,26 @@
-import { afterAll, expect, test } from "vitest";
+import { afterAll, beforeAll, expect, test } from "vitest";
 import { prisma } from "@/lib/db";
+import { createTestOrg, dropTestOrg } from "./helpers";
+
+const phoneNumberId = "test-pnid";
+let organizationId: string;
+
+beforeAll(async () => {
+  await dropTestOrg(phoneNumberId);
+  organizationId = (await createTestOrg(phoneNumberId)).id;
+});
 
 afterAll(async () => {
-  await prisma.message.deleteMany({ where: { wamid: "wamid.test.db" } });
-  await prisma.conversation.deleteMany({ where: { phoneNumberId: "test-pnid" } });
-  await prisma.contact.deleteMany({ where: { waId: "77010000001" } });
+  await dropTestOrg(phoneNumberId);
   await prisma.$disconnect();
 });
 
 test("сохраняет сообщение в цепочке контакт → диалог → сообщение", async () => {
   const contact = await prisma.contact.create({
-    data: { waId: "77010000001", name: "Тест" },
+    data: { organizationId, waId: "77010000001", name: "Тест" },
   });
   const conversation = await prisma.conversation.create({
-    data: { contactId: contact.id, phoneNumberId: "test-pnid" },
+    data: { organizationId, contactId: contact.id, phoneNumberId },
   });
   const message = await prisma.message.create({
     data: {
@@ -28,4 +35,19 @@ test("сохраняет сообщение в цепочке контакт →
 
   expect(message.text).toBe("Здравствуйте");
   expect(message.direction).toBe("INBOUND");
+});
+
+test("удаление компании уносит её контакты и переписку", async () => {
+  const organization = await prisma.organization.create({ data: { name: "На удаление" } });
+  const contact = await prisma.contact.create({
+    data: { organizationId: organization.id, waId: "77010000009" },
+  });
+  await prisma.conversation.create({
+    data: { organizationId: organization.id, contactId: contact.id, phoneNumberId: "pnid-drop" },
+  });
+
+  await prisma.organization.delete({ where: { id: organization.id } });
+
+  expect(await prisma.contact.findUnique({ where: { id: contact.id } })).toBeNull();
+  expect(await prisma.conversation.count({ where: { phoneNumberId: "pnid-drop" } })).toBe(0);
 });

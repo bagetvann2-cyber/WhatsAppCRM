@@ -2,22 +2,26 @@ import crypto from "node:crypto";
 import { afterAll, afterEach, beforeAll, expect, test } from "vitest";
 import { POST } from "@/app/api/webhook/route";
 import { prisma } from "@/lib/db";
+import { createTestOrg, dropTestOrg } from "./helpers";
 
 const secret = "post-secret";
 const waId = "77015554433";
+let organizationId: string;
 
-beforeAll(() => {
+beforeAll(async () => {
   process.env.WHATSAPP_APP_SECRET = secret;
+  await dropTestOrg("PNID-POST");
+  organizationId = (await createTestOrg("PNID-POST")).id;
 });
 
-async function cleanup() {
-  await prisma.message.deleteMany({ where: { conversation: { phoneNumberId: "PNID-POST" } } });
-  await prisma.conversation.deleteMany({ where: { phoneNumberId: "PNID-POST" } });
-  await prisma.contact.deleteMany({ where: { waId } });
-}
+afterEach(async () => {
+  await prisma.message.deleteMany({ where: { conversation: { organizationId } } });
+  await prisma.conversation.deleteMany({ where: { organizationId } });
+  await prisma.contact.deleteMany({ where: { organizationId } });
+});
 
-afterEach(cleanup);
 afterAll(async () => {
+  await dropTestOrg("PNID-POST");
   await prisma.$disconnect();
 });
 

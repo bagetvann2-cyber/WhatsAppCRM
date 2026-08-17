@@ -38,9 +38,9 @@ export async function POST(request: Request): Promise<Response> {
   const { messages, statuses } = parseWebhook(payload);
 
   for (const message of messages) {
-    const { conversationId, created } = await saveIncomingMessage(message);
-    if (created) {
-      messageEvents.emit("update", { conversationId });
+    const result = await saveIncomingMessage(message);
+    if (result.stored && result.created) {
+      messageEvents.emit("update", { conversationId: result.conversationId });
     }
   }
 
