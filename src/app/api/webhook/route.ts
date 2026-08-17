@@ -1,4 +1,10 @@
+import { prisma } from "@/lib/db";
 import { env } from "@/lib/env";
+import {
+  handleUnsubscribeMessage,
+  UNSUBSCRIBE_CONFIRMATION,
+} from "@/lib/unsubscribe";
+import { sendTextMessage } from "@/lib/whatsapp/client";
 import { runAiBot } from "@/lib/ai-bot-store";
 import { runAutomation } from "@/lib/automation-store";
 import { messageEvents } from "@/lib/events";
@@ -58,6 +64,36 @@ export async function POST(request: Request): Promise<Response> {
     if (message.media) {
       await ensureMediaFile(result.messageId);
       messageEvents.emit("update", { conversationId: result.conversationId });
+    }
+
+    // Отписка идёт первой и глушит остальных: на «стоп» клиент должен
+    // получить один понятный ответ, а не приветствие с рекламой следом.
+    const unsubscribed = await handleUnsubscribeMessage({
+      organizationId: result.organizationId,
+      conversationId: result.conversationId,
+      text: message.text,
+    });
+
+    if (unsubscribed) {
+      try {
+        const { wamid } = await sendTextMessage(message.from, UNSUBSCRIBE_CONFIRMATION);
+        await prisma.message.create({
+          data: {
+            wamid,
+            conversationId: result.conversationId,
+            direction: "OUTBOUND",
+            type: "text",
+            text: UNSUBSCRIBE_CONFIRMATION,
+            status: "sent",
+            timestamp: new Date(),
+          },
+        });
+      } catch {
+        // Подтверждение не ушло — сама отписка уже сохранена, это главное.
+      }
+
+      messageEvents.emit("update", { conversationId: result.conversationId });
+      continue;
     }
 
     // Сначала автоответы: приветствие и «мы не работаем» — простые и предсказуемые.

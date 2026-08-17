@@ -2,7 +2,11 @@
 
 import Link from "next/link";
 import { useState } from "react";
-import { saveContactAction, toggleTagAction } from "@/app/(app)/contacts/actions";
+import {
+  saveContactAction,
+  toggleTagAction,
+  toggleUnsubscribeAction,
+} from "@/app/(app)/contacts/actions";
 import { formatPhone, initials } from "@/lib/format";
 
 type Tag = { id: string; name: string };
@@ -12,7 +16,15 @@ export function ContactRow({
   allTags,
   conversationId,
 }: {
-  contact: { id: string; waId: string; name: string | null; note: string | null; tagIds: string[] };
+  contact: {
+    id: string;
+    waId: string;
+    name: string | null;
+    note: string | null;
+    tagIds: string[];
+    unsubscribed: boolean;
+    unsubscribeSource: string | null;
+  };
   allTags: Tag[];
   conversationId?: string;
 }) {
@@ -74,6 +86,15 @@ export function ContactRow({
             </p>
             {contact.note && <p className="mt-1 text-xs text-ink-muted">{contact.note}</p>}
 
+            {contact.unsubscribed && (
+              <p className="mt-1.5 inline-flex items-center gap-1.5 rounded-full bg-warn-soft px-2 py-0.5 text-xs text-warn">
+                Отписан от рассылок
+                {contact.unsubscribeSource && (
+                  <span className="opacity-80">· {contact.unsubscribeSource}</span>
+                )}
+              </p>
+            )}
+
             <div className="mt-2 flex flex-wrap items-center gap-1.5">
               {allTags.map((tag) => {
                 const active = contact.tagIds.includes(tag.id);
@@ -116,13 +137,27 @@ export function ContactRow({
           </Link>
         )}
         {!editing && (
-          <button
-            type="button"
-            onClick={() => setEditing(true)}
-            className="text-xs text-ink-muted transition-colors hover:text-ink"
-          >
-            Изменить
-          </button>
+          <>
+            {/* Вернуть в рассылки может только оператор и только по просьбе клиента */}
+            <form action={toggleUnsubscribeAction}>
+              <input type="hidden" name="contactId" value={contact.id} />
+              <input type="hidden" name="unsubscribed" value={contact.unsubscribed ? "" : "on"} />
+              <button
+                type="submit"
+                className="text-xs text-ink-muted transition-colors hover:text-ink"
+              >
+                {contact.unsubscribed ? "Вернуть в рассылки" : "Отписать"}
+              </button>
+            </form>
+
+            <button
+              type="button"
+              onClick={() => setEditing(true)}
+              className="text-xs text-ink-muted transition-colors hover:text-ink"
+            >
+              Изменить
+            </button>
+          </>
         )}
       </div>
     </li>

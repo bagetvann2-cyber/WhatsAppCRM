@@ -11,6 +11,7 @@ import {
   toggleTag,
   updateContact,
 } from "@/lib/contacts";
+import { setUnsubscribed } from "@/lib/unsubscribe";
 
 export type FormState = { error: string } | { ok: string } | null;
 
@@ -57,6 +58,23 @@ export async function deleteTagAction(data: FormData): Promise<void> {
 export async function toggleTagAction(data: FormData): Promise<void> {
   const { organization } = await requireUser();
   await toggleTag(organization.id, text(data, "contactId"), text(data, "tagId"));
+  revalidatePath("/contacts");
+}
+
+/**
+ * Отписать контакт или вернуть его в рассылки. Возврат — по просьбе клиента:
+ * сам он снять отписку не может, для этого и нужен оператор.
+ */
+export async function toggleUnsubscribeAction(data: FormData): Promise<void> {
+  const { organization } = await requireUser();
+
+  await setUnsubscribed({
+    organizationId: organization.id,
+    contactId: text(data, "contactId"),
+    unsubscribed: data.get("unsubscribed") === "on",
+    source: "оператор",
+  });
+
   revalidatePath("/contacts");
 }
 

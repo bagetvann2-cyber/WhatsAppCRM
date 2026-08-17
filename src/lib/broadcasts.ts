@@ -11,10 +11,21 @@ const SEND_INTERVAL_MS = 120;
 const FAILURE_THRESHOLD = 0.2;
 const FAILURE_MIN_SAMPLE = 10;
 
-/** Кому уйдёт рассылка. Пустой фильтр — всем контактам компании. */
-export async function selectRecipients(organizationId: string, filter: ContactFilter = {}) {
+/**
+ * Кому уйдёт рассылка. Пустой фильтр — всем контактам компании.
+ * `marketing` убирает отписавшихся: реклама им запрещена, служебные
+ * сообщения по одобренному шаблону — нет.
+ */
+export async function selectRecipients(
+  organizationId: string,
+  filter: ContactFilter = {},
+  options: { marketing?: boolean } = {},
+) {
   return prisma.contact.findMany({
-    where: contactWhere(organizationId, filter),
+    where: {
+      ...contactWhere(organizationId, filter),
+      ...(options.marketing ? { unsubscribedAt: null } : {}),
+    },
     // id вторым ключом: у контактов из одного импорта createdAt совпадает
     // до миллисекунды, и без него порядок отправки каждый раз разный.
     orderBy: [{ createdAt: "asc" }, { id: "asc" }],
@@ -44,7 +55,9 @@ export async function listBroadcasts(organizationId: string) {
     orderBy: { createdAt: "desc" },
     include: {
       template: true,
-      recipients: { select: { status: true } },
+      recipients: {
+        select: { status: true, contact: { select: { unsubscribedAt: true } } },
+      },
     },
   });
 }
@@ -52,13 +65,32 @@ export async function listBroadcasts(organizationId: string) {
 export type BroadcastListItem = Awaited<ReturnType<typeof listBroadcasts>>[number];
 
 export function countByStatus(recipients: { status: string }[]) {
-  const counts = { PENDING: 0, SENT: 0, DELIVERED: 0, READ: 0, FAILED: 0 };
+  const counts = { PENDING: 0, SENT: 0, DELIVERED: 0, READ: 0, FAILED: 0, SKIPPED: 0 };
   for (const recipient of recipients) {
     if (recipient.status in counts) {
       counts[recipient.status as keyof typeof counts] += 1;
     }
   }
   return counts;
+}
+
+/**
+ * Отписки, вызванные рассылкой: получатели, отписавшиеся после её запуска.
+ * Главное число отчёта по рекламе — оно показывает, не перегнули ли с частотой.
+ */
+export function countUnsubscribes(
+  recipients: { contact: { unsubscribedAt: Date | null } }[],
+  startedAt: Date | null,
+): number {
+  if (!startedAt) {
+    return 0;
+  }
+
+  return recipients.filter(
+    (recipient) =>
+      recipient.contact.unsubscribedAt !== null &&
+      recipient.contact.unsubscribedAt.getTime() >= startedAt.getTime(),
+  ).length;
 }
 
 /**
@@ -84,13 +116,19 @@ export async function createBroadcast(input: {
   }
 
   const tagIds = input.segmentTagIds?.filter(Boolean) ?? [];
-  const contacts = await selectRecipients(input.organizationId, {
-    query: input.segmentQuery,
-    tagIds,
-  });
+  const marketing = template.category === "MARKETING";
+  const contacts = await selectRecipients(
+    input.organizationId,
+    { query: input.segmentQuery, tagIds },
+    { marketing },
+  );
 
   if (contacts.length === 0) {
-    throw new Error("В сегменте нет ни одного контакта.");
+    throw new Error(
+      marketing
+        ? "В сегменте нет ни одного контакта, которому можно писать: все либо не подходят под фильтр, либо отписались от рассылок."
+        : "В сегменте нет ни одного контакта.",
+    );
   }
 
   return prisma.broadcast.create({
@@ -157,6 +195,16 @@ export async function runBroadcast(organizationId: string, id: string): Promise<
     });
     if (current?.status !== "RUNNING") {
       return;
+    }
+
+    // Отписаться могли уже после создания рассылки: список получателей
+    // зафиксирован, а запрет — нет. Пропуск не считается сбоем.
+    if (broadcast.template.category === "MARKETING" && recipient.contact.unsubscribedAt) {
+      await prisma.broadcastRecipient.update({
+        where: { id: recipient.id },
+        data: { status: "SKIPPED", error: "Контакт отписался от рассылок" },
+      });
+      continue;
     }
 
     try {

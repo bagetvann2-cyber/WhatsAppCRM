@@ -120,6 +120,8 @@ export default async function ContactsPage({ searchParams }: PageProps<"/contact
                     name: contact.name,
                     note: contact.note,
                     tagIds: contact.tags.map((t) => t.tagId),
+                    unsubscribed: contact.unsubscribedAt !== null,
+                    unsubscribeSource: contact.unsubscribeSource,
                   }}
                   allTags={tags.map((t) => ({ id: t.id, name: t.name }))}
                   conversationId={chatByContact.get(contact.id)}

@@ -50,6 +50,9 @@ enum RecipientStatus {
   DELIVERED
   READ
   FAILED
+  /// Не отправляли: контакт отписался от рассылок уже после её создания.
+  /// Отдельный статус, а не ошибка — иначе автостоп сочтёт это сбоем.
+  SKIPPED
 }
 
 /// Компания-клиент платформы. Всё остальное принадлежит организации:
@@ -281,6 +284,11 @@ model Contact {
   note           String?
   /// Откуда пришёл контакт: написал сам, импорт, перенос истории.
   source         String?
+  /// Отказ от рассылок. Служебные сообщения по-прежнему уходят: клиент
+  /// отписывался от рекламы, а не от подтверждения своей записи.
+  unsubscribedAt DateTime?
+  /// Как отписался: сам написал «стоп», кнопкой в рассылке или снял оператор.
+  unsubscribeSource String?
   createdAt      DateTime             @default(now())
   conversations  Conversation[]
   broadcasts     BroadcastRecipient[]

@@ -5,7 +5,7 @@ import { AlertIcon, BackIcon } from "@/components/icons";
 import { prisma } from "@/lib/db";
 import { requireUser } from "@/lib/session";
 import { canManageTeam } from "@/lib/team";
-import { countByStatus, listBroadcasts } from "@/lib/broadcasts";
+import { countByStatus, countUnsubscribes, listBroadcasts } from "@/lib/broadcasts";
 import { listTags } from "@/lib/contacts";
 
 export const dynamic = "force-dynamic";
@@ -98,13 +98,14 @@ export default async function BroadcastsPage() {
                     </span>
                   </div>
 
-                  <dl className="mt-4 grid grid-cols-2 gap-3 sm:grid-cols-5">
+                  <dl className="mt-4 grid grid-cols-2 gap-3 sm:grid-cols-6">
                     {[
                       ["Получателей", total],
                       ["Отправлено", reached],
                       ["Доставлено", counts.DELIVERED + counts.READ],
                       ["Прочитано", counts.READ],
                       ["Ошибок", counts.FAILED],
+                      ["Отписок", countUnsubscribes(broadcast.recipients, broadcast.startedAt)],
                     ].map(([label, value]) => (
                       <div key={label as string}>
                         <dt className="text-xs text-ink-faint">{label}</dt>
