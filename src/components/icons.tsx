@@ -128,6 +128,15 @@ export function BoltIcon(props: SVGProps<SVGSVGElement>) {
   );
 }
 
+export function SparkIcon(props: SVGProps<SVGSVGElement>) {
+  return (
+    <Icon {...props}>
+      <path d="M12 4.5c.6 3.4 2.1 4.9 5.5 5.5-3.4.6-4.9 2.1-5.5 5.5-.6-3.4-2.1-4.9-5.5-5.5 3.4-.6 4.9-2.1 5.5-5.5z" />
+      <path d="M17.5 15.5c.3 1.4.9 2 2.3 2.3-1.4.3-2 .9-2.3 2.3-.3-1.4-.9-2-2.3-2.3 1.4-.3 2-.9 2.3-2.3z" />
+    </Icon>
+  );
+}
+
 export function TeamIcon(props: SVGProps<SVGSVGElement>) {
   return (
     <Icon {...props}>

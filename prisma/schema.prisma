@@ -68,6 +68,54 @@ model Organization {
   broadcasts    Broadcast[]
   tags          Tag[]
   automation    Automation?
+  aiBot         AiBot?
+  aiReplies     AiReply[]
+}
+
+/// Настройки ИИ-помощника. Отвечает клиентам по анкете компании,
+/// пока не подключится оператор.
+model AiBot {
+  id             String       @id @default(cuid())
+  organizationId String       @unique
+  organization   Organization @relation(fields: [organizationId], references: [id], onDelete: Cascade)
+
+  enabled Boolean @default(false)
+  /// Модель Claude. Меняется без правки кода — на случай, когда выйдет новая.
+  model   String  @default("claude-opus-5")
+
+  /// Анкета компании: чем занимаетесь, услуги, цены, часы работы.
+  /// Это постоянная часть запроса, она кэшируется — менять её часто дорого.
+  companyProfile String
+  /// Чего боту нельзя обещать: скидки, сроки, гарантии.
+  rules          String?
+
+  /// Пакет ответов: кончился — бот замолкает, а не выставляет счёт.
+  answersLimit Int @default(100)
+  answersUsed  Int @default(0)
+
+  updatedAt DateTime @updatedAt
+}
+
+/// Журнал ответов бота. Нужен и для отчёта клиенту, и для разбора,
+/// когда бот сказал что-то не то.
+model AiReply {
+  id             String       @id @default(cuid())
+  organizationId String
+  organization   Organization @relation(fields: [organizationId], references: [id], onDelete: Cascade)
+  conversationId String
+  question       String
+  answer         String?
+  /// Бот решил, что нужен человек, и передал диалог.
+  handoff        Boolean      @default(false)
+  handoffReason  String?
+  error          String?
+  inputTokens    Int          @default(0)
+  cachedTokens   Int          @default(0)
+  outputTokens   Int          @default(0)
+  createdAt      DateTime     @default(now())
+
+  @@index([organizationId, createdAt])
+  @@index([conversationId])
 }
 
 /// Настройки автоответов. Одна запись на компанию.
@@ -274,6 +322,8 @@ model Conversation {
   windowExpiresAt DateTime?
   /// Когда в этот диалог последний раз уходил автоответ вне рабочих часов.
   awayRepliedAt   DateTime?
+  /// Диалог передан человеку: бот в него больше не пишет.
+  handedOffAt     DateTime?
   messages        Message[]
 
   @@unique([contactId, phoneNumberId])

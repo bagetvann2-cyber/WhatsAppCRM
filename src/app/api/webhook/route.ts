@@ -1,4 +1,5 @@
 import { env } from "@/lib/env";
+import { runAiBot } from "@/lib/ai-bot-store";
 import { runAutomation } from "@/lib/automation-store";
 import { messageEvents } from "@/lib/events";
 import { applyStatusUpdate, saveIncomingMessage } from "@/lib/ingest";
@@ -51,6 +52,9 @@ export async function POST(request: Request): Promise<Response> {
 
     messageEvents.emit("update", { conversationId: result.conversationId });
 
+    // Сначала автоответы: приветствие и «мы не работаем» — простые и предсказуемые.
+    // ИИ-помощник подключается только если они промолчали, иначе клиент
+    // получит два ответа подряд на одно сообщение.
     const reply = await runAutomation({
       organizationId: result.organizationId,
       conversationId: result.conversationId,
@@ -58,6 +62,17 @@ export async function POST(request: Request): Promise<Response> {
     });
 
     if (reply) {
+      messageEvents.emit("update", { conversationId: result.conversationId });
+      continue;
+    }
+
+    const bot = await runAiBot({
+      organizationId: result.organizationId,
+      conversationId: result.conversationId,
+      waId: message.from,
+    });
+
+    if (bot.status === "answered" || bot.status === "handoff") {
       messageEvents.emit("update", { conversationId: result.conversationId });
     }
   }
