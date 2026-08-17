@@ -1,4 +1,5 @@
 import { env } from "@/lib/env";
+import { runAutomation } from "@/lib/automation-store";
 import { messageEvents } from "@/lib/events";
 import { applyStatusUpdate, saveIncomingMessage } from "@/lib/ingest";
 import { isValidSignature } from "@/lib/signature";
@@ -44,7 +45,19 @@ export async function POST(request: Request): Promise<Response> {
 
   for (const message of messages) {
     const result = await saveIncomingMessage(message);
-    if (result.stored && result.created) {
+    if (!result.stored || !result.created) {
+      continue;
+    }
+
+    messageEvents.emit("update", { conversationId: result.conversationId });
+
+    const reply = await runAutomation({
+      organizationId: result.organizationId,
+      conversationId: result.conversationId,
+      waId: message.from,
+    });
+
+    if (reply) {
       messageEvents.emit("update", { conversationId: result.conversationId });
     }
   }

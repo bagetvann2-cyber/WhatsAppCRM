@@ -120,6 +120,14 @@ export function UsersIcon(props: SVGProps<SVGSVGElement>) {
   );
 }
 
+export function BoltIcon(props: SVGProps<SVGSVGElement>) {
+  return (
+    <Icon {...props}>
+      <path d="M13 3 5.5 13.5H11l-1 7.5L18.5 10H13z" />
+    </Icon>
+  );
+}
+
 export function TeamIcon(props: SVGProps<SVGSVGElement>) {
   return (
     <Icon {...props}>

@@ -67,6 +67,27 @@ model Organization {
   templates     MessageTemplate[]
   broadcasts    Broadcast[]
   tags          Tag[]
+  automation    Automation?
+}
+
+/// Настройки автоответов. Одна запись на компанию.
+model Automation {
+  id             String       @id @default(cuid())
+  organizationId String       @unique
+  organization   Organization @relation(fields: [organizationId], references: [id], onDelete: Cascade)
+
+  greetingEnabled Boolean @default(false)
+  greetingText    String?
+
+  awayEnabled Boolean @default(false)
+  awayText    String?
+
+  /// Часовой пояс компании: рабочие часы считаются по нему, а не по серверу.
+  timezone String @default("Asia/Almaty")
+  /// Расписание на неделю, начиная с понедельника: [{enabled, from, to}, ...]
+  schedule Json
+
+  updatedAt DateTime @updatedAt
 }
 
 /// Рассылка по одобренному шаблону. Получатели фиксируются в момент создания,
@@ -251,6 +272,8 @@ model Conversation {
   phoneNumberId   String
   lastMessageAt   DateTime     @default(now())
   windowExpiresAt DateTime?
+  /// Когда в этот диалог последний раз уходил автоответ вне рабочих часов.
+  awayRepliedAt   DateTime?
   messages        Message[]
 
   @@unique([contactId, phoneNumberId])
