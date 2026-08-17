@@ -102,7 +102,13 @@ def flush_table(doc, rows):
 
 
 def main():
-    with open(SRC, encoding="utf-8") as fh:
+    # Без аргументов собирается ТЗ. С аргументами: md2docx.py <исходник.md> [результат.docx]
+    src = sys.argv[1] if len(sys.argv) > 1 else SRC
+    dst = sys.argv[2] if len(sys.argv) > 2 else (
+        DST if src == SRC else re.sub(r"\.md$", ".docx", src)
+    )
+
+    with open(src, encoding="utf-8") as fh:
         lines = fh.read().splitlines()
 
     doc = Document()
@@ -167,8 +173,8 @@ def main():
     if table_buf:
         flush_table(doc, table_buf)
 
-    doc.save(DST)
-    print("saved:", DST)
+    doc.save(dst)
+    print("saved:", dst)
 
 
 if __name__ == "__main__":
