@@ -1,26 +1,120 @@
 @import "tailwindcss";
 
+/*
+ * Светлая тема — базовая. Тёмная переопределяет только значения, набор токенов
+ * один и тот же, поэтому компонент не может «поехать» в одной из тем.
+ */
 :root {
-  --background: #ffffff;
-  --foreground: #171717;
-}
+  /* Поверхности: страница холоднее и темнее панелей — так колонки разделяются без линеек */
+  --page: #eef1f4;
+  --panel: #ffffff;
+  --panel-muted: #f7f9fa;
+  --raised: #ffffff;
 
-@theme inline {
-  --color-background: var(--background);
-  --color-foreground: var(--foreground);
-  --font-sans: var(--font-geist-sans);
-  --font-mono: var(--font-geist-mono);
+  --line: #dfe4e9;
+  --line-strong: #c6cdd5;
+
+  --ink: #101519;
+  --ink-muted: #59636f;
+  --ink-faint: #8a939e;
+
+  /* Акцент: приглушённый изумруд — родство с каналом читается, копией мессенджера не выглядит */
+  --accent: #0d7a58;
+  --accent-hover: #0a6247;
+  --accent-ink: #ffffff;
+  --accent-soft: #e4f2ec;
+  --accent-line: #b6dccc;
+
+  --warn: #9a5b06;
+  --warn-soft: #fdf2e2;
+  --danger: #a52a1f;
+  --danger-soft: #fdeceb;
+
+  --ring: #0d7a58;
+
+  --shadow-panel: 0 1px 2px rgb(16 21 25 / 0.06), 0 8px 24px -12px rgb(16 21 25 / 0.18);
+  --shadow-bubble: 0 1px 1px rgb(16 21 25 / 0.05);
 }
 
 @media (prefers-color-scheme: dark) {
   :root {
-    --background: #0a0a0a;
-    --foreground: #ededed;
+    --page: #0c1013;
+    --panel: #151b21;
+    --panel-muted: #1a2129;
+    --raised: #1b232b;
+
+    --line: #26313a;
+    --line-strong: #37444f;
+
+    --ink: #e7edf2;
+    --ink-muted: #9aa6b2;
+    --ink-faint: #6f7c89;
+
+    --accent: #2ea27c;
+    --accent-hover: #38b78d;
+    --accent-ink: #07130f;
+    --accent-soft: #15271f;
+    --accent-line: #26473a;
+
+    --warn: #e0a458;
+    --warn-soft: #2a2015;
+    --danger: #e98b80;
+    --danger-soft: #2c1a18;
+
+    --ring: #38b78d;
+
+    --shadow-panel: 0 1px 2px rgb(0 0 0 / 0.4), 0 8px 24px -12px rgb(0 0 0 / 0.7);
+    --shadow-bubble: 0 1px 1px rgb(0 0 0 / 0.3);
   }
 }
 
+@theme inline {
+  --color-page: var(--page);
+  --color-panel: var(--panel);
+  --color-panel-muted: var(--panel-muted);
+  --color-raised: var(--raised);
+
+  --color-line: var(--line);
+  --color-line-strong: var(--line-strong);
+
+  --color-ink: var(--ink);
+  --color-ink-muted: var(--ink-muted);
+  --color-ink-faint: var(--ink-faint);
+
+  --color-accent: var(--accent);
+  --color-accent-hover: var(--accent-hover);
+  --color-accent-ink: var(--accent-ink);
+  --color-accent-soft: var(--accent-soft);
+  --color-accent-line: var(--accent-line);
+
+  --color-warn: var(--warn);
+  --color-warn-soft: var(--warn-soft);
+  --color-danger: var(--danger);
+  --color-danger-soft: var(--danger-soft);
+
+  --color-ring: var(--ring);
+
+  --font-sans: var(--font-manrope), ui-sans-serif, system-ui, sans-serif;
+
+  --shadow-panel: var(--shadow-panel);
+  --shadow-bubble: var(--shadow-bubble);
+}
+
+html,
 body {
-  background: var(--background);
-  color: var(--foreground);
-  font-family: Arial, Helvetica, sans-serif;
+  height: 100%;
+}
+
+body {
+  background: var(--page);
+  color: var(--ink);
+  font-family: var(--font-sans);
+  -webkit-font-smoothing: antialiased;
+}
+
+/* Одна видимая рамка фокуса на всё приложение — клавиатурой ходить можно везде */
+:focus-visible {
+  outline: 2px solid var(--ring);
+  outline-offset: 2px;
+  border-radius: 4px;
 }
