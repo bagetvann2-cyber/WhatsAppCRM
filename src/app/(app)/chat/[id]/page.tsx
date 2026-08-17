@@ -1,5 +1,7 @@
 import Link from "next/link";
 import { notFound } from "next/navigation";
+import { queueCounts } from "@/lib/assignment";
+import { AssignControl } from "@/components/AssignControl";
 import { Composer } from "@/components/Composer";
 import { ConversationList } from "@/components/ConversationList";
 import { LiveRefresh } from "@/components/LiveRefresh";
@@ -8,11 +10,30 @@ import { Shell } from "@/components/Shell";
 import { ThreadScroll } from "@/components/ThreadScroll";
 import { WindowTimer } from "@/components/WindowTimer";
 import { BackIcon } from "@/components/icons";
-import { getConversation, listConversations, type ThreadMessage } from "@/lib/conversations";
+import {
+  getConversation,
+  listConversations,
+  parseScope,
+  type ThreadMessage,
+} from "@/lib/conversations";
 import { dayKey, dayLabel, formatPhone, initials } from "@/lib/format";
 import { requireUser } from "@/lib/session";
+import { canManageTeam, listMembers } from "@/lib/team";
 
 export const dynamic = "force-dynamic";
+
+/** Возврат к списку сохраняет и поиск, и выбранную вкладку. */
+function backHref(query: string, scope: string): string {
+  const params = new URLSearchParams();
+  if (query) {
+    params.set("q", query);
+  }
+  if (scope !== "all") {
+    params.set("scope", scope);
+  }
+  const search = params.toString();
+  return search ? `/?${search}` : "/";
+}
 
 /** Разбивает ленту на дни, чтобы между сообщениями встали разделители с датой. */
 function groupByDay(messages: ThreadMessage[]) {
@@ -33,19 +54,27 @@ function groupByDay(messages: ThreadMessage[]) {
 }
 
 export default async function ChatPage({ params, searchParams }: PageProps<"/chat/[id]">) {
-  const { organization } = await requireUser();
+  const { user, organization, role } = await requireUser();
   const { id } = await params;
-  const { q } = await searchParams;
+  const { q, scope } = await searchParams;
   const query = typeof q === "string" ? q : "";
+  const view = parseScope(scope);
 
-  const [conversation, conversations] = await Promise.all([
+  const [conversation, conversations, members, counts] = await Promise.all([
     getConversation(organization.id, id),
-    listConversations(organization.id, query),
+    listConversations(organization.id, query, { scope: view, userId: user.id }),
+    listMembers(organization.id),
+    queueCounts(organization.id, user.id),
   ]);
 
   if (!conversation) {
     notFound();
   }
+
+  const team = members.map((member) => ({
+    id: member.userId,
+    label: member.user.name?.trim() || member.user.email,
+  }));
 
   const windowOpen =
     conversation.windowExpiresAt !== null && conversation.windowExpiresAt.getTime() > Date.now();
@@ -62,12 +91,15 @@ export default async function ChatPage({ params, searchParams }: PageProps<"/cha
             conversations={conversations}
             activeId={conversation.id}
             query={query}
+            scope={view}
+            meId={user.id}
+            counts={counts}
           />
         }
       >
         <header className="flex items-center gap-3 border-b border-line bg-panel px-4 py-3 md:px-6">
           <Link
-            href={query ? `/?q=${encodeURIComponent(query)}` : "/"}
+            href={backHref(query, view)}
             aria-label="Вернуться к списку диалогов"
             className="-ml-1 grid size-9 shrink-0 place-items-center rounded-lg text-ink-muted transition-colors hover:bg-panel-muted hover:text-ink md:hidden"
           >
@@ -89,6 +121,21 @@ export default async function ChatPage({ params, searchParams }: PageProps<"/cha
               {formatPhone(conversation.contact.waId)}
             </p>
           </div>
+
+          <AssignControl
+            conversationId={conversation.id}
+            assignee={
+              conversation.assignee
+                ? {
+                    id: conversation.assignee.id,
+                    label: conversation.assignee.name?.trim() || conversation.assignee.email,
+                  }
+                : null
+            }
+            members={team}
+            canManage={canManageTeam(role)}
+            meId={user.id}
+          />
 
           <WindowTimer expiresAt={conversation.windowExpiresAt?.toISOString() ?? null} />
         </header>

@@ -225,6 +225,7 @@ model User {
   createdAt    DateTime     @default(now())
   memberships  Membership[]
   sessions     Session[]
+  assigned     Conversation[]
 }
 
 /// Связь пользователя с организацией и его роль в ней.
@@ -324,10 +325,16 @@ model Conversation {
   awayRepliedAt   DateTime?
   /// Диалог передан человеку: бот в него больше не пишет.
   handedOffAt     DateTime?
+  /// Ответственный оператор. Уходит сотрудник — диалог не пропадает,
+  /// а возвращается в общую очередь: onDelete: SetNull.
+  assigneeId      String?
+  assignee        User?        @relation(fields: [assigneeId], references: [id], onDelete: SetNull)
+  assignedAt      DateTime?
   messages        Message[]
 
   @@unique([contactId, phoneNumberId])
   @@index([organizationId, lastMessageAt])
+  @@index([assigneeId])
 }
 
 model Message {

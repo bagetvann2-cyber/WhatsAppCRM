@@ -8,12 +8,26 @@ import { prisma } from "@/lib/db";
  * organizationId обязателен: запрос без привязки к компании невозможен
  * по сигнатуре, а не по договорённости.
  */
-export async function listConversations(organizationId: string, query?: string) {
+/** Какие диалоги показывать: все, свои или ничьи. */
+export type Scope = "all" | "mine" | "free";
+
+export function parseScope(value: unknown): Scope {
+  return value === "mine" || value === "free" ? value : "all";
+}
+
+export async function listConversations(
+  organizationId: string,
+  query?: string,
+  filter: { scope?: Scope; userId?: string } = {},
+) {
   const q = query?.trim();
+  const scope = filter.scope ?? "all";
 
   return prisma.conversation.findMany({
     where: {
       organizationId,
+      ...(scope === "mine" ? { assigneeId: filter.userId ?? "" } : {}),
+      ...(scope === "free" ? { assigneeId: null } : {}),
       ...(q
         ? {
             OR: [
@@ -27,6 +41,7 @@ export async function listConversations(organizationId: string, query?: string) 
     orderBy: { lastMessageAt: "desc" },
     include: {
       contact: true,
+      assignee: { select: { id: true, name: true, email: true } },
       messages: { orderBy: { timestamp: "desc" }, take: 1 },
     },
   });
@@ -40,6 +55,7 @@ export async function getConversation(organizationId: string, id: string) {
     where: { id, organizationId },
     include: {
       contact: true,
+      assignee: { select: { id: true, name: true, email: true } },
       messages: { orderBy: { timestamp: "asc" } },
     },
   });

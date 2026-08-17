@@ -15,7 +15,9 @@ const FAILURE_MIN_SAMPLE = 10;
 export async function selectRecipients(organizationId: string, filter: ContactFilter = {}) {
   return prisma.contact.findMany({
     where: contactWhere(organizationId, filter),
-    orderBy: { createdAt: "asc" },
+    // id вторым ключом: у контактов из одного импорта createdAt совпадает
+    // до миллисекунды, и без него порядок отправки каждый раз разный.
+    orderBy: [{ createdAt: "asc" }, { id: "asc" }],
   });
 }
 

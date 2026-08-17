@@ -1,7 +1,7 @@
 import Link from "next/link";
 import { SearchBox } from "@/components/SearchBox";
 import { LockIcon, SearchIcon } from "@/components/icons";
-import type { ConversationListItem } from "@/lib/conversations";
+import type { ConversationListItem, Scope } from "@/lib/conversations";
 import { dayLabel, dayKey, initials, timeLabel } from "@/lib/format";
 import { mediaLabel } from "@/lib/media";
 
@@ -22,6 +22,28 @@ function stampLabel(date: Date): string {
   return dayKey(date) === dayKey(now) ? timeLabel(date) : dayLabel(date, now);
 }
 
+function personLabel(person: { name: string | null; email: string }): string {
+  return person.name?.trim() || person.email;
+}
+
+const TABS: { scope: Scope; label: string }[] = [
+  { scope: "all", label: "Все" },
+  { scope: "mine", label: "Мои" },
+  { scope: "free", label: "Свободные" },
+];
+
+function tabHref(scope: Scope, query: string): string {
+  const params = new URLSearchParams();
+  if (query) {
+    params.set("q", query);
+  }
+  if (scope !== "all") {
+    params.set("scope", scope);
+  }
+  const search = params.toString();
+  return search ? `/?${search}` : "/";
+}
+
 function Avatar({ name, waId, active }: { name: string | null; waId: string; active: boolean }) {
   return (
     <span
@@ -35,21 +57,56 @@ function Avatar({ name, waId, active }: { name: string | null; waId: string; act
   );
 }
 
+/** Кто ведёт диалог: свои отмечены цветом, чужие — приглушены. */
+function AssigneeMark({
+  assignee,
+  meId,
+}: {
+  assignee: NonNullable<ConversationListItem["assignee"]>;
+  meId: string;
+}) {
+  const label = personLabel(assignee);
+  const mine = assignee.id === meId;
+
+  return (
+    <span
+      title={mine ? `Ваш диалог — ${label}` : `Ведёт ${label}`}
+      className={`grid size-5 shrink-0 place-items-center rounded-full text-[0.625rem] font-semibold ${
+        mine ? "bg-accent text-accent-ink" : "bg-panel-muted text-ink-muted"
+      }`}
+    >
+      {initials(label, label)}
+      <span className="sr-only">{mine ? "ваш диалог" : `ведёт ${label}`}</span>
+    </span>
+  );
+}
+
 function ConversationRow({
   conversation,
   active,
   query,
+  scope,
+  meId,
 }: {
   conversation: ConversationListItem;
   active: boolean;
   query: string;
+  scope: Scope;
+  meId: string;
 }) {
   const last = conversation.messages[0];
   const windowClosed =
     conversation.windowExpiresAt === null || conversation.windowExpiresAt.getTime() <= Date.now();
-  const href = query
-    ? `/chat/${conversation.id}?q=${encodeURIComponent(query)}`
-    : `/chat/${conversation.id}`;
+
+  const params = new URLSearchParams();
+  if (query) {
+    params.set("q", query);
+  }
+  if (scope !== "all") {
+    params.set("scope", scope);
+  }
+  const search = params.toString();
+  const href = search ? `/chat/${conversation.id}?${search}` : `/chat/${conversation.id}`;
 
   return (
     <li>
@@ -77,6 +134,21 @@ function ConversationRow({
               {last?.direction === "OUTBOUND" && <span className="text-ink-faint">Вы: </span>}
               {last ? previewText(last) : "Переписка пуста"}
             </span>
+
+            {/* Помощник вернул диалог человеку, а человека ещё нет — такие важно не пропустить */}
+            {!conversation.assignee && conversation.handedOffAt && (
+              <span
+                title="ИИ-помощник передал диалог оператору"
+                className="shrink-0 rounded-full bg-warn-soft px-1.5 py-0.5 text-[0.625rem] font-medium text-warn"
+              >
+                нужен человек
+              </span>
+            )}
+
+            {conversation.assignee && (
+              <AssigneeMark assignee={conversation.assignee} meId={meId} />
+            )}
+
             {windowClosed && (
               <LockIcon
                 className="size-3.5 shrink-0 text-ink-faint"
@@ -91,14 +163,26 @@ function ConversationRow({
   );
 }
 
+const EMPTY_HINT: Record<Scope, string> = {
+  all: "Диалогов пока нет. Первое сообщение клиента создаст карточку контакта автоматически.",
+  mine: "На вас пока ничего не назначено. Возьмите диалог из вкладки «Свободные».",
+  free: "Свободных диалогов нет — вся переписка уже за кем-то закреплена.",
+};
+
 export function ConversationList({
   conversations,
   activeId,
   query,
+  scope,
+  meId,
+  counts,
 }: {
   conversations: ConversationListItem[];
   activeId?: string;
   query: string;
+  scope: Scope;
+  meId: string;
+  counts: { mine: number; free: number };
 }) {
   return (
     <>
@@ -109,7 +193,32 @@ export function ConversationList({
             {query ? `найдено: ${conversations.length}` : `всего: ${conversations.length}`}
           </span>
         </div>
+
         <SearchBox initialQuery={query} />
+
+        <nav aria-label="Кого показывать" className="mt-3 flex gap-1">
+          {TABS.map((tab) => {
+            const count = tab.scope === "mine" ? counts.mine : tab.scope === "free" ? counts.free : null;
+
+            return (
+              <Link
+                key={tab.scope}
+                href={tabHref(tab.scope, query)}
+                aria-current={tab.scope === scope ? "page" : undefined}
+                className={`rounded-lg px-2.5 py-1 text-xs font-medium transition-colors ${
+                  tab.scope === scope
+                    ? "bg-accent-soft text-accent"
+                    : "text-ink-muted hover:bg-panel-muted hover:text-ink"
+                }`}
+              >
+                {tab.label}
+                {count !== null && count > 0 && (
+                  <span className="ml-1 tabular-nums opacity-70">{count}</span>
+                )}
+              </Link>
+            );
+          })}
+        </nav>
       </div>
 
       {conversations.length === 0 ? (
@@ -123,7 +232,7 @@ export function ConversationList({
                 Попробуйте часть номера или слово из переписки.
               </>
             ) : (
-              "Диалогов пока нет. Первое сообщение клиента создаст карточку контакта автоматически."
+              EMPTY_HINT[scope]
             )}
           </p>
         </div>
@@ -135,6 +244,8 @@ export function ConversationList({
               conversation={conversation}
               active={conversation.id === activeId}
               query={query}
+              scope={scope}
+              meId={meId}
             />
           ))}
         </ul>
