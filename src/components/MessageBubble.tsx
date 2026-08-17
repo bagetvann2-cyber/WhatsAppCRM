@@ -1,3 +1,4 @@
+import { MessageMedia } from "@/components/MessageMedia";
 import { AlertIcon, AttachmentIcon, CheckIcon, DoubleCheckIcon } from "@/components/icons";
 import type { ThreadMessage } from "@/lib/conversations";
 import { statusLabel, timeLabel } from "@/lib/format";
@@ -23,6 +24,7 @@ function StatusMark({ status }: { status: string | null }) {
 
 export function MessageBubble({ message }: { message: ThreadMessage }) {
   const outbound = message.direction === "OUTBOUND";
+  const hasMedia = Boolean(message.mediaId || message.mediaPath);
 
   return (
     <div className={`flex ${outbound ? "justify-end" : "justify-start"}`}>
@@ -33,15 +35,23 @@ export function MessageBubble({ message }: { message: ThreadMessage }) {
             : "rounded-bl-sm border border-line bg-raised text-ink"
         }`}
       >
+        {hasMedia && (
+          <div className={message.text ? "mb-2" : ""}>
+            <MessageMedia message={message} />
+          </div>
+        )}
+
         {message.text ? (
           <p className="text-[0.9375rem] leading-relaxed break-words whitespace-pre-wrap">
             {message.text}
           </p>
         ) : (
-          <p className="flex items-center gap-2 text-[0.9375rem] italic opacity-90">
-            <AttachmentIcon className="size-4" />
-            Вложение: {message.type}
-          </p>
+          !hasMedia && (
+            <p className="flex items-center gap-2 text-[0.9375rem] italic opacity-90">
+              <AttachmentIcon className="size-4" />
+              Сообщение без текста: {message.type}
+            </p>
+          )
         )}
 
         <div

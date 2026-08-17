@@ -65,6 +65,7 @@ test("разбирает входящее текстовое сообщение"
     phoneNumberId: "PNID123",
     type: "text",
     text: "Здравствуйте",
+    media: null,
     timestamp: new Date(1755300000 * 1000),
   });
   expect(result.statuses).toHaveLength(0);

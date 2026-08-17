@@ -5,7 +5,14 @@ import type { IncomingMessage, StatusUpdate } from "@/lib/whatsapp/parse";
 const WINDOW_HOURS = 24;
 
 export type IngestResult =
-  | { stored: true; conversationId: string; created: boolean; organizationId: string }
+  | {
+      stored: true;
+      conversationId: string;
+      created: boolean;
+      organizationId: string;
+      /** Идентификатор сохранённого сообщения — по нему качается вложение. */
+      messageId: string;
+    }
   | { stored: false; reason: "unknown-number" };
 
 /**
@@ -56,10 +63,16 @@ export async function saveIncomingMessage(message: IncomingMessage): Promise<Ing
 
   const existing = await prisma.message.findUnique({ where: { wamid: message.wamid } });
   if (existing) {
-    return { stored: true, conversationId: conversation.id, created: false, organizationId };
+    return {
+      stored: true,
+      conversationId: conversation.id,
+      created: false,
+      organizationId,
+      messageId: existing.id,
+    };
   }
 
-  await prisma.message.create({
+  const created = await prisma.message.create({
     data: {
       wamid: message.wamid,
       conversationId: conversation.id,
@@ -67,10 +80,25 @@ export async function saveIncomingMessage(message: IncomingMessage): Promise<Ing
       type: message.type,
       text: message.text,
       timestamp: message.timestamp,
+      ...(message.media
+        ? {
+            mediaId: message.media.mediaId,
+            mimeType: message.media.mimeType,
+            filename: message.media.filename,
+            mediaSize: message.media.size,
+            voice: message.media.voice,
+          }
+        : {}),
     },
   });
 
-  return { stored: true, conversationId: conversation.id, created: true, organizationId };
+  return {
+    stored: true,
+    conversationId: conversation.id,
+    created: true,
+    organizationId,
+    messageId: created.id,
+  };
 }
 
 /** Обновляет статус доставки. Статус может прийти раньше, чем мы узнали о сообщении. */

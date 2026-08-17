@@ -3,6 +3,7 @@ import { runAiBot } from "@/lib/ai-bot-store";
 import { runAutomation } from "@/lib/automation-store";
 import { messageEvents } from "@/lib/events";
 import { applyStatusUpdate, saveIncomingMessage } from "@/lib/ingest";
+import { ensureMediaFile } from "@/lib/media-store";
 import { isValidSignature } from "@/lib/signature";
 import { applyTemplateUpdate } from "@/lib/templates-store";
 import { parseWebhook } from "@/lib/whatsapp/parse";
@@ -51,6 +52,13 @@ export async function POST(request: Request): Promise<Response> {
     }
 
     messageEvents.emit("update", { conversationId: result.conversationId });
+
+    // Копию файла забираем сразу: у Meta он живёт 30 дней, а переписка дольше.
+    // Не получилось — не беда, вложение докачается при первом открытии.
+    if (message.media) {
+      await ensureMediaFile(result.messageId);
+      messageEvents.emit("update", { conversationId: result.conversationId });
+    }
 
     // Сначала автоответы: приветствие и «мы не работаем» — простые и предсказуемые.
     // ИИ-помощник подключается только если они промолчали, иначе клиент

@@ -5,9 +5,115 @@
  *   npm run demo -- почта-владельца        # наполнить
  *   npm run demo -- почта-владельца clean  # убрать демо-данные
  */
+import { unlink } from "node:fs/promises";
+import { basename, join, resolve } from "node:path";
 import { prisma } from "@/lib/db";
+import { env } from "@/lib/env";
+import { extensionFor } from "@/lib/media";
+import { writeMediaFile } from "@/lib/media-store";
 
 const DEMO_PREFIX = "demo.";
+
+/**
+ * Демо-вложения рисуем сами: скачивать чужие файлы ради показа незачем,
+ * а пустые квадраты в переписке выглядят хуже, чем честная демо-картинка.
+ */
+function demoImage(): Uint8Array {
+  const svg = `<svg xmlns="http://www.w3.org/2000/svg" width="640" height="420">
+  <rect width="640" height="420" fill="#0f172a"/>
+  <circle cx="320" cy="196" r="120" fill="#1e293b"/>
+  <path d="M250 250c20-90 120-90 140 0 8 36-20 70-40 40-14-20-46-20-60 0-20 30-48-4-40-40z" fill="#e2e8f0"/>
+  <text x="320" y="382" fill="#94a3b8" font-family="sans-serif" font-size="22" text-anchor="middle">демо-снимок</text>
+</svg>`;
+  return new TextEncoder().encode(svg);
+}
+
+/** Короткий WAV: голосовое в демо должно реально проигрываться в плеере. */
+function demoVoice(seconds = 4): Uint8Array {
+  const rate = 8000;
+  const samples = rate * seconds;
+  const buffer = Buffer.alloc(44 + samples * 2);
+
+  buffer.write("RIFF", 0);
+  buffer.writeUInt32LE(36 + samples * 2, 4);
+  buffer.write("WAVEfmt ", 8);
+  buffer.writeUInt32LE(16, 16);
+  buffer.writeUInt16LE(1, 20);
+  buffer.writeUInt16LE(1, 22);
+  buffer.writeUInt32LE(rate, 24);
+  buffer.writeUInt32LE(rate * 2, 28);
+  buffer.writeUInt16LE(2, 32);
+  buffer.writeUInt16LE(16, 34);
+  buffer.write("data", 36);
+  buffer.writeUInt32LE(samples * 2, 40);
+
+  for (let i = 0; i < samples; i += 1) {
+    // Тихий затухающий тон — не музыка, но видно, что дорожка живая.
+    const envelope = Math.max(0, 1 - i / samples);
+    const value = Math.sin((i / rate) * 2 * Math.PI * 220) * 6000 * envelope;
+    buffer.writeInt16LE(Math.round(value), 44 + i * 2);
+  }
+
+  return new Uint8Array(buffer);
+}
+
+/** Минимальный настоящий PDF: открывается любой смотрелкой. */
+function demoDocument(): Uint8Array {
+  const text = "Plan lecheniya (demo) - Stomatologiya Ulybka";
+  const objects = [
+    "<< /Type /Catalog /Pages 2 0 R >>",
+    "<< /Type /Pages /Kids [3 0 R] /Count 1 >>",
+    "<< /Type /Page /Parent 2 0 R /MediaBox [0 0 595 842] /Resources << /Font << /F1 5 0 R >> >> /Contents 4 0 R >>",
+    `<< /Length ${text.length + 44} >>\nstream\nBT /F1 16 Tf 60 760 Td (${text}) Tj ET\nendstream`,
+    "<< /Type /Font /Subtype /Type1 /BaseFont /Helvetica >>",
+  ];
+
+  let pdf = "%PDF-1.4\n";
+  const offsets: number[] = [];
+  objects.forEach((body, index) => {
+    offsets.push(pdf.length);
+    pdf += `${index + 1} 0 obj\n${body}\nendobj\n`;
+  });
+
+  const xref = pdf.length;
+  pdf += `xref\n0 ${objects.length + 1}\n0000000000 65535 f \n`;
+  for (const offset of offsets) {
+    pdf += `${String(offset).padStart(10, "0")} 00000 n \n`;
+  }
+  pdf += `trailer\n<< /Size ${objects.length + 1} /Root 1 0 R >>\nstartxref\n${xref}\n%%EOF\n`;
+
+  return new TextEncoder().encode(pdf);
+}
+
+type DemoMedia = {
+  bytes: Uint8Array;
+  mimeType: string;
+  filename: string | null;
+  type: string;
+  voice?: boolean;
+};
+
+const MEDIA: Record<string, DemoMedia> = {
+  photo: {
+    bytes: demoImage(),
+    mimeType: "image/svg+xml",
+    filename: null,
+    type: "image",
+  },
+  voice: {
+    bytes: demoVoice(),
+    mimeType: "audio/wav",
+    filename: null,
+    type: "audio",
+    voice: true,
+  },
+  plan: {
+    bytes: demoDocument(),
+    mimeType: "application/pdf",
+    filename: "План лечения.pdf",
+    type: "document",
+  },
+};
 
 const CONTACTS = [
   { waId: "77011234567", name: "Айгерим Сатыбалдиева" },
@@ -19,7 +125,13 @@ const CONTACTS = [
   { waId: "77015556677", name: "Тимур Ахметов" },
 ];
 
-type Line = { out: boolean; text: string; minutesAgo: number; status?: string };
+type Line = {
+  out: boolean;
+  text: string | null;
+  minutesAgo: number;
+  status?: string;
+  media?: keyof typeof MEDIA;
+};
 
 const DIALOGS: Record<string, Line[]> = {
   "77011234567": [
@@ -47,6 +159,8 @@ const DIALOGS: Record<string, Line[]> = {
   ],
   "77019991122": [
     { out: false, text: "Болит зуб, можно сегодня?", minutesAgo: 15 },
+    { out: false, text: "Вот так выглядит", minutesAgo: 14, media: "photo" },
+    { out: false, text: null, minutesAgo: 13, media: "voice" },
   ],
   "77473334455": [
     { out: false, text: "Спасибо, всё отлично прошло!", minutesAgo: 2600 },
@@ -55,6 +169,7 @@ const DIALOGS: Record<string, Line[]> = {
   "77015556677": [
     { out: false, text: "Здравствуйте, нужна консультация по имплантации", minutesAgo: 4300 },
     { out: true, text: "Добрый день, Тимур! Консультация с КТ — 8 000 ₸, при согласии на лечение сумма идёт в счёт работы.", minutesAgo: 4290, status: "read" },
+    { out: true, text: "Отправляю предварительный план лечения — посмотрите, пожалуйста.", minutesAgo: 4285, status: "read", media: "plan" },
   ],
 };
 
@@ -63,6 +178,16 @@ function minutesAgo(minutes: number): Date {
 }
 
 async function clean(organizationId: string) {
+  // Копии демо-вложений убираем с диска: строка в базе уйдёт, файл — нет.
+  const withFiles = await prisma.message.findMany({
+    where: { wamid: { startsWith: DEMO_PREFIX }, mediaPath: { not: null } },
+    select: { mediaPath: true },
+  });
+
+  for (const { mediaPath } of withFiles) {
+    await unlink(join(resolve(process.cwd(), env.mediaDir()), basename(mediaPath!))).catch(() => {});
+  }
+
   await prisma.message.deleteMany({ where: { wamid: { startsWith: DEMO_PREFIX } } });
   await prisma.broadcast.deleteMany({ where: { organizationId, name: { startsWith: "Демо:" } } });
   await prisma.messageTemplate.deleteMany({
@@ -129,17 +254,36 @@ async function main() {
       },
     });
 
-    await prisma.message.createMany({
-      data: lines.map((line, index) => ({
-        wamid: `${DEMO_PREFIX}${contact.waId}.${index}`,
-        conversationId: conversation.id,
-        direction: line.out ? ("OUTBOUND" as const) : ("INBOUND" as const),
-        type: "text",
-        text: line.text,
-        status: line.out ? (line.status ?? "sent") : null,
-        timestamp: minutesAgo(line.minutesAgo),
-      })),
-    });
+    for (const [index, line] of lines.entries()) {
+      const media = line.media ? MEDIA[line.media] : null;
+
+      const message = await prisma.message.create({
+        data: {
+          wamid: `${DEMO_PREFIX}${contact.waId}.${index}`,
+          conversationId: conversation.id,
+          direction: line.out ? ("OUTBOUND" as const) : ("INBOUND" as const),
+          type: media?.type ?? "text",
+          text: line.text,
+          status: line.out ? (line.status ?? "sent") : null,
+          timestamp: minutesAgo(line.minutesAgo),
+          ...(media
+            ? {
+                mediaId: `${DEMO_PREFIX}media.${contact.waId}.${index}`,
+                mimeType: media.mimeType,
+                filename: media.filename,
+                mediaSize: media.bytes.byteLength,
+                voice: media.voice ?? false,
+              }
+            : {}),
+        },
+      });
+
+      if (media) {
+        const name = `${message.id}.${extensionFor(media.mimeType, media.filename)}`;
+        await writeMediaFile(name, media.bytes);
+        await prisma.message.update({ where: { id: message.id }, data: { mediaPath: name } });
+      }
+    }
   }
 
   const approved = await prisma.messageTemplate.create({
@@ -213,6 +357,7 @@ async function main() {
 
   console.log(`Кабинет «${membership.organization.name}» наполнен:`);
   console.log(`  контактов и диалогов: ${CONTACTS.length}`);
+  console.log("  вложений: снимок, голосовое и план лечения в PDF");
   console.log("  шаблонов: 3 (одобрен, на модерации, отклонён)");
   console.log("  рассылок: 1 с отчётом");
 

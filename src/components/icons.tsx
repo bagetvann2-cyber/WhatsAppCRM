@@ -179,6 +179,16 @@ export function LogoutIcon(props: SVGProps<SVGSVGElement>) {
   );
 }
 
+export function DownloadIcon(props: SVGProps<SVGSVGElement>) {
+  return (
+    <Icon {...props}>
+      <path d="M12 4.5v10" />
+      <path d="m8 11 4 4 4-4" />
+      <path d="M5 19.5h14" />
+    </Icon>
+  );
+}
+
 export function AttachmentIcon(props: SVGProps<SVGSVGElement>) {
   return (
     <Icon {...props}>

@@ -5,6 +5,8 @@ export default defineConfig({
   test: {
     environment: "node",
     include: ["tests/**/*.test.ts"],
+    // Тестовые вложения не должны смешиваться с рабочими копиями.
+    env: { MEDIA_DIR: "storage/media-test" },
   },
   resolve: {
     alias: {

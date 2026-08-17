@@ -3,6 +3,18 @@ import { SearchBox } from "@/components/SearchBox";
 import { LockIcon, SearchIcon } from "@/components/icons";
 import type { ConversationListItem } from "@/lib/conversations";
 import { dayLabel, dayKey, initials, timeLabel } from "@/lib/format";
+import { mediaLabel } from "@/lib/media";
+
+/** Строка последнего сообщения: у вложения вместо текста — что это за файл. */
+function previewText(message: ConversationListItem["messages"][number]): string {
+  if (message.text) {
+    return message.text;
+  }
+  if (message.mediaId || message.mediaPath) {
+    return mediaLabel(message);
+  }
+  return `Сообщение: ${message.type}`;
+}
 
 /** Свежие диалоги показываем временем, старые — датой: так короче и точнее. */
 function stampLabel(date: Date): string {
@@ -63,7 +75,7 @@ function ConversationRow({
           <span className="mt-0.5 flex items-center gap-1.5">
             <span className="min-w-0 flex-1 truncate text-sm text-ink-muted">
               {last?.direction === "OUTBOUND" && <span className="text-ink-faint">Вы: </span>}
-              {last?.text ?? (last ? `Вложение: ${last.type}` : "Переписка пуста")}
+              {last ? previewText(last) : "Переписка пуста"}
             </span>
             {windowClosed && (
               <LockIcon

@@ -127,6 +127,7 @@ async function incoming(text: string, wamid: string) {
     phoneNumberId,
     type: "text",
     text,
+    media: null,
     timestamp: new Date(),
   });
 

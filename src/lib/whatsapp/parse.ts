@@ -1,10 +1,21 @@
+/** Вложение приходит без файла: Meta отдаёт только идентификатор. */
+export type IncomingMedia = {
+  mediaId: string;
+  mimeType: string | null;
+  filename: string | null;
+  size: number | null;
+  voice: boolean;
+};
+
 export type IncomingMessage = {
   wamid: string;
   from: string;
   profileName: string | null;
   phoneNumberId: string;
   type: string;
+  /** Для вложения — подпись к файлу. */
   text: string | null;
+  media: IncomingMedia | null;
   timestamp: Date;
 };
 
@@ -39,6 +50,42 @@ function asArray(value: unknown): unknown[] {
 
 function asRecord(value: unknown): Record<string, unknown> {
   return value && typeof value === "object" ? (value as Record<string, unknown>) : {};
+}
+
+function asText(value: unknown): string | null {
+  return typeof value === "string" && value !== "" ? value : null;
+}
+
+/** Типы сообщений с файлом. Стикер — та же картинка, только квадратная. */
+const MEDIA_TYPES = ["image", "video", "audio", "document", "sticker"] as const;
+
+/**
+ * Достаёт вложение: у каждого типа своя вложенная секция с одинаковым набором
+ * полей. Подпись лежит там же и попадает в text — это и есть текст сообщения.
+ */
+function readMedia(message: Record<string, unknown>, type: string) {
+  if (!MEDIA_TYPES.includes(type as (typeof MEDIA_TYPES)[number])) {
+    return { media: null, caption: null };
+  }
+
+  const payload = asRecord(message[type]);
+  const mediaId = asText(payload.id);
+  if (!mediaId) {
+    return { media: null, caption: null };
+  }
+
+  const size = Number(payload.file_size);
+
+  return {
+    media: {
+      mediaId,
+      mimeType: asText(payload.mime_type),
+      filename: asText(payload.filename),
+      size: Number.isFinite(size) && size > 0 ? size : null,
+      voice: payload.voice === true,
+    },
+    caption: asText(payload.caption),
+  };
 }
 
 /**
@@ -79,15 +126,18 @@ export function parseWebhook(payload: unknown): ParsedWebhook {
       for (const raw of asArray(value.messages)) {
         const message = asRecord(raw);
         const from = String(message.from ?? "");
+        const type = String(message.type ?? "unknown");
         const text = asRecord(message.text).body;
+        const { media, caption } = readMedia(message, type);
 
         messages.push({
           wamid: String(message.id ?? ""),
           from,
           profileName: nameByWaId.get(from) ?? null,
           phoneNumberId,
-          type: String(message.type ?? "unknown"),
-          text: typeof text === "string" ? text : null,
+          type,
+          text: typeof text === "string" ? text : caption,
+          media,
           timestamp: toDate(message.timestamp),
         });
       }

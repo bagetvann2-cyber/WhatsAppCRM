@@ -337,10 +337,25 @@ model Message {
   conversation   Conversation     @relation(fields: [conversationId], references: [id], onDelete: Cascade)
   direction      MessageDirection
   type           String
+  /// Для вложения здесь подпись к файлу: у Meta это то же поле сообщения.
   text           String?
   status         String?
   timestamp      DateTime
   createdAt      DateTime         @default(now())
+
+  /// Идентификатор файла у Meta. Она удаляет медиа через 30 дней,
+  /// поэтому копию храним у себя, а id оставляем для повторной попытки.
+  mediaId    String?
+  mimeType   String?
+  /// Имя файла для документов — клиент видит в WhatsApp именно его.
+  filename   String?
+  mediaSize  Int?
+  /// Имя нашей копии в каталоге медиа. Пусто — файл ещё не скачан.
+  mediaPath  String?
+  /// Почему копию получить не удалось: оператору честнее ошибка, чем тишина.
+  mediaError String?
+  /// Голосовое, а не приложенный музыкальный файл.
+  voice      Boolean @default(false)
 
   @@index([conversationId, timestamp])
 }

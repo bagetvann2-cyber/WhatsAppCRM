@@ -15,6 +15,7 @@ const base: IncomingMessage = {
   phoneNumberId,
   type: "text",
   text: "Первое сообщение",
+  media: null,
   timestamp: new Date("2026-08-16T09:00:00Z"),
 };
 

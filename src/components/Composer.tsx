@@ -1,8 +1,12 @@
 "use client";
 
 import { useRouter } from "next/navigation";
-import { useState, type FormEvent, type KeyboardEvent } from "react";
-import { AlertIcon, LockIcon, SendIcon } from "@/components/icons";
+import { useRef, useState, type DragEvent, type FormEvent, type KeyboardEvent } from "react";
+import { AlertIcon, AttachmentIcon, LockIcon, SendIcon } from "@/components/icons";
+import { sizeLabel } from "@/lib/media";
+
+/** Столько же принимает сервер: предупредить до отправки честнее, чем после. */
+const MAX_BYTES = 32 * 1024 * 1024;
 
 export function Composer({
   conversationId,
@@ -12,11 +16,33 @@ export function Composer({
   windowOpen: boolean;
 }) {
   const router = useRouter();
+  const fileInput = useRef<HTMLInputElement>(null);
   const [text, setText] = useState("");
+  const [file, setFile] = useState<File | null>(null);
+  const [dragging, setDragging] = useState(false);
   const [error, setError] = useState<string | null>(null);
   const [sending, setSending] = useState(false);
 
-  const empty = text.trim() === "";
+  const empty = text.trim() === "" && !file;
+
+  function pickFile(next: File | null) {
+    if (!next) {
+      return;
+    }
+    if (next.size > MAX_BYTES) {
+      setError(`Файл больше ${sizeLabel(MAX_BYTES)}. WhatsApp такой не примет.`);
+      return;
+    }
+    setError(null);
+    setFile(next);
+  }
+
+  function clearFile() {
+    setFile(null);
+    if (fileInput.current) {
+      fileInput.current.value = "";
+    }
+  }
 
   async function send(event?: FormEvent) {
     event?.preventDefault();
@@ -28,11 +54,16 @@ export function Composer({
     setSending(true);
 
     try {
-      const response = await fetch("/api/messages", {
-        method: "POST",
-        headers: { "content-type": "application/json" },
-        body: JSON.stringify({ conversationId, text }),
-      });
+      // С файлом уходит форма, без файла — обычный JSON: сервер понимает оба.
+      const request: RequestInit = file
+        ? { method: "POST", body: toForm(conversationId, file, text) }
+        : {
+            method: "POST",
+            headers: { "content-type": "application/json" },
+            body: JSON.stringify({ conversationId, text }),
+          };
+
+      const response = await fetch("/api/messages", request);
 
       if (!response.ok) {
         const data = await response.json().catch(() => null);
@@ -41,6 +72,7 @@ export function Composer({
       }
 
       setText("");
+      clearFile();
       router.refresh();
     } catch {
       setError("Нет связи с сервером. Сообщение не отправлено.");
@@ -55,6 +87,12 @@ export function Composer({
       event.preventDefault();
       void send();
     }
+  }
+
+  function onDrop(event: DragEvent<HTMLFormElement>) {
+    event.preventDefault();
+    setDragging(false);
+    pickFile(event.dataTransfer.files[0] ?? null);
   }
 
   if (!windowOpen) {
@@ -73,7 +111,18 @@ export function Composer({
   }
 
   return (
-    <form onSubmit={send} className="border-t border-line bg-panel px-4 py-4 md:px-6">
+    <form
+      onSubmit={send}
+      onDragOver={(event) => {
+        event.preventDefault();
+        setDragging(true);
+      }}
+      onDragLeave={() => setDragging(false)}
+      onDrop={onDrop}
+      className={`border-t px-4 py-4 transition-colors md:px-6 ${
+        dragging ? "border-accent bg-accent-soft" : "border-line bg-panel"
+      }`}
+    >
       {error && (
         <p
           role="alert"
@@ -84,14 +133,49 @@ export function Composer({
         </p>
       )}
 
+      {file && (
+        <div className="mb-3 flex items-center gap-3 rounded-lg border border-line bg-panel-muted px-3 py-2">
+          <AttachmentIcon className="size-4 shrink-0 text-ink-muted" />
+          <span className="min-w-0 flex-1">
+            <span className="block truncate text-sm text-ink">{file.name}</span>
+            <span className="block text-xs text-ink-faint">{sizeLabel(file.size)}</span>
+          </span>
+          <button
+            type="button"
+            onClick={clearFile}
+            disabled={sending}
+            className="shrink-0 text-xs text-ink-muted transition-colors hover:text-danger"
+          >
+            Убрать
+          </button>
+        </div>
+      )}
+
       <div className="flex items-end gap-2">
+        <input
+          ref={fileInput}
+          type="file"
+          hidden
+          onChange={(event) => pickFile(event.target.files?.[0] ?? null)}
+        />
+        <button
+          type="button"
+          onClick={() => fileInput.current?.click()}
+          disabled={sending}
+          title="Прикрепить файл"
+          aria-label="Прикрепить файл"
+          className="grid size-11 shrink-0 place-items-center rounded-xl border border-line text-ink-muted transition-colors hover:border-line-strong hover:bg-panel-muted hover:text-ink disabled:opacity-40"
+        >
+          <AttachmentIcon className="size-5" />
+        </button>
+
         <textarea
           value={text}
           onChange={(event) => setText(event.target.value)}
           onKeyDown={onKeyDown}
           disabled={sending}
           rows={1}
-          placeholder="Введите сообщение"
+          placeholder={file ? "Подпись к файлу — необязательно" : "Введите сообщение"}
           aria-label="Текст сообщения"
           className="max-h-40 min-h-11 flex-1 resize-y rounded-xl border border-line bg-panel-muted px-4 py-2.5 text-[0.9375rem] text-ink transition-colors placeholder:text-ink-faint hover:border-line-strong focus:border-accent focus:bg-panel disabled:opacity-60"
         />
@@ -107,8 +191,18 @@ export function Composer({
       </div>
 
       <p className="mt-2 text-xs text-ink-faint">
-        Enter — отправить, Shift + Enter — новая строка
+        Enter — отправить, Shift + Enter — новая строка. Файл можно перетащить сюда мышью.
       </p>
     </form>
   );
+}
+
+function toForm(conversationId: string, file: File, caption: string): FormData {
+  const form = new FormData();
+  form.append("conversationId", conversationId);
+  form.append("file", file);
+  if (caption.trim()) {
+    form.append("caption", caption.trim());
+  }
+  return form;
 }
