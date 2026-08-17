@@ -14,9 +14,19 @@ export type StatusUpdate = {
   timestamp: Date;
 };
 
+/** Решение модерации Meta по шаблону: приходит отдельным полем вебхука. */
+export type TemplateUpdate = {
+  metaId: string;
+  name: string;
+  language: string;
+  event: string;
+  reason: string | null;
+};
+
 export type ParsedWebhook = {
   messages: IncomingMessage[];
   statuses: StatusUpdate[];
+  templates: TemplateUpdate[];
 };
 
 function toDate(seconds: unknown): Date {
@@ -39,10 +49,23 @@ function asRecord(value: unknown): Record<string, unknown> {
 export function parseWebhook(payload: unknown): ParsedWebhook {
   const messages: IncomingMessage[] = [];
   const statuses: StatusUpdate[] = [];
+  const templates: TemplateUpdate[] = [];
 
   for (const entry of asArray(asRecord(payload).entry)) {
     for (const change of asArray(asRecord(entry).changes)) {
       const value = asRecord(asRecord(change).value);
+
+      if (asRecord(change).field === "message_template_status_update") {
+        templates.push({
+          metaId: String(value.message_template_id ?? ""),
+          name: String(value.message_template_name ?? ""),
+          language: String(value.message_template_language ?? ""),
+          event: String(value.event ?? ""),
+          reason: typeof value.reason === "string" && value.reason !== "NONE" ? value.reason : null,
+        });
+        continue;
+      }
+
       const metadata = asRecord(value.metadata);
       const phoneNumberId = String(metadata.phone_number_id ?? "");
 
@@ -80,5 +103,5 @@ export function parseWebhook(payload: unknown): ParsedWebhook {
     }
   }
 
-  return { messages, statuses };
+  return { messages, statuses, templates };
 }

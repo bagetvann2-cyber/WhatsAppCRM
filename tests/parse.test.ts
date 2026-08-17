@@ -93,11 +93,69 @@ test("для нетекстового типа кладёт null в text, но �
   expect(result.messages[0].text).toBeNull();
 });
 
+test("разбирает решение модерации по шаблону", () => {
+  const approved = parseWebhook({
+    object: "whatsapp_business_account",
+    entry: [
+      {
+        id: "WABA_ID",
+        changes: [
+          {
+            field: "message_template_status_update",
+            value: {
+              event: "APPROVED",
+              message_template_id: 1234567890,
+              message_template_name: "zapis_podtverzhdenie",
+              message_template_language: "ru",
+              reason: "NONE",
+            },
+          },
+        ],
+      },
+    ],
+  });
+
+  expect(approved.templates).toEqual([
+    {
+      metaId: "1234567890",
+      name: "zapis_podtverzhdenie",
+      language: "ru",
+      event: "APPROVED",
+      reason: null,
+    },
+  ]);
+  expect(approved.messages).toHaveLength(0);
+});
+
+test("причина отказа сохраняется", () => {
+  const rejected = parseWebhook({
+    entry: [
+      {
+        changes: [
+          {
+            field: "message_template_status_update",
+            value: {
+              event: "REJECTED",
+              message_template_id: 42,
+              message_template_name: "akciya",
+              message_template_language: "ru",
+              reason: "INVALID_FORMAT",
+            },
+          },
+        ],
+      },
+    ],
+  });
+
+  expect(rejected.templates[0]).toMatchObject({ event: "REJECTED", reason: "INVALID_FORMAT" });
+});
+
 test("не падает на пустом или чужом payload", () => {
-  expect(parseWebhook({})).toEqual({ messages: [], statuses: [] });
-  expect(parseWebhook(null)).toEqual({ messages: [], statuses: [] });
+  expect(parseWebhook({})).toEqual({ messages: [], statuses: [], templates: [] });
+  expect(parseWebhook(null)).toEqual({ messages: [], statuses: [], templates: [] });
   expect(parseWebhook({ entry: [{ changes: [{ field: "account_update", value: {} }] }] })).toEqual({
     messages: [],
     statuses: [],
+    templates: [],
   });
 });

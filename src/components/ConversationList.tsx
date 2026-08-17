@@ -115,12 +115,20 @@ export function ConversationList({
           </div>
           <div className="flex shrink-0 items-center gap-1">
             {canManage && (
-              <Link
-                href="/team"
-                className="rounded-lg px-2 py-1 text-xs text-ink-muted transition-colors hover:bg-panel-muted hover:text-ink"
-              >
-                Команда
-              </Link>
+              <>
+                <Link
+                  href="/templates"
+                  className="rounded-lg px-2 py-1 text-xs text-ink-muted transition-colors hover:bg-panel-muted hover:text-ink"
+                >
+                  Шаблоны
+                </Link>
+                <Link
+                  href="/team"
+                  className="rounded-lg px-2 py-1 text-xs text-ink-muted transition-colors hover:bg-panel-muted hover:text-ink"
+                >
+                  Команда
+                </Link>
+              </>
             )}
             <form action={signOutAction}>
               <button

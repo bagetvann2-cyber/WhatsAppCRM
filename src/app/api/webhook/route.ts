@@ -2,6 +2,7 @@ import { env } from "@/lib/env";
 import { messageEvents } from "@/lib/events";
 import { applyStatusUpdate, saveIncomingMessage } from "@/lib/ingest";
 import { isValidSignature } from "@/lib/signature";
+import { applyTemplateUpdate } from "@/lib/templates-store";
 import { parseWebhook } from "@/lib/whatsapp/parse";
 
 export async function GET(request: Request): Promise<Response> {
@@ -35,7 +36,11 @@ export async function POST(request: Request): Promise<Response> {
     return new Response("OK", { status: 200 });
   }
 
-  const { messages, statuses } = parseWebhook(payload);
+  const { messages, statuses, templates } = parseWebhook(payload);
+
+  for (const template of templates) {
+    await applyTemplateUpdate(template);
+  }
 
   for (const message of messages) {
     const result = await saveIncomingMessage(message);

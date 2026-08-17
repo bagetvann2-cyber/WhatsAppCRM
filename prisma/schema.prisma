@@ -20,6 +20,23 @@ enum Role {
   OPERATOR
 }
 
+/// Категории Meta. От категории зависит цена сообщения и строгость модерации.
+enum TemplateCategory {
+  MARKETING
+  UTILITY
+  AUTHENTICATION
+}
+
+/// DRAFT — наш собственный статус, до отправки в Meta. Остальные приходят от неё.
+enum TemplateStatus {
+  DRAFT
+  PENDING
+  APPROVED
+  REJECTED
+  PAUSED
+  DISABLED
+}
+
 /// Компания-клиент платформы. Всё остальное принадлежит организации:
 /// ни один запрос к данным не выполняется без привязки к ней.
 model Organization {
@@ -32,6 +49,31 @@ model Organization {
   contacts      Contact[]
   conversations Conversation[]
   numbers       WhatsappNumber[]
+  templates     MessageTemplate[]
+}
+
+/// Шаблон сообщения. Пока Meta не одобрит, писать по нему клиенту нельзя.
+model MessageTemplate {
+  id             String           @id @default(cuid())
+  organizationId String
+  organization   Organization     @relation(fields: [organizationId], references: [id], onDelete: Cascade)
+  name           String
+  language       String
+  category       TemplateCategory
+  headerText     String?
+  bodyText       String
+  footerText     String?
+  /// Примеры значений для переменных — Meta требует их при отправке на модерацию.
+  examples       String[]
+  status         TemplateStatus   @default(DRAFT)
+  metaId         String?
+  rejectedReason String?
+  submittedAt    DateTime?
+  createdAt      DateTime         @default(now())
+  updatedAt      DateTime         @updatedAt
+
+  @@unique([organizationId, name, language])
+  @@index([organizationId, status])
 }
 
 /// Подключённый номер WhatsApp. По нему входящий вебхук находит компанию:
@@ -41,6 +83,8 @@ model WhatsappNumber {
   organizationId String
   organization   Organization @relation(fields: [organizationId], references: [id], onDelete: Cascade)
   phoneNumberId  String       @unique
+  /// WABA — аккаунт компании в Meta. Шаблоны живут на нём, а не на номере.
+  wabaId         String?
   displayNumber  String?
   qualityRating  String?
   createdAt      DateTime     @default(now())
