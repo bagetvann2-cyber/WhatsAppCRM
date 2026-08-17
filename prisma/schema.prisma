@@ -37,6 +37,21 @@ enum TemplateStatus {
   DISABLED
 }
 
+enum BroadcastStatus {
+  DRAFT
+  RUNNING
+  DONE
+  STOPPED
+}
+
+enum RecipientStatus {
+  PENDING
+  SENT
+  DELIVERED
+  READ
+  FAILED
+}
+
 /// Компания-клиент платформы. Всё остальное принадлежит организации:
 /// ни один запрос к данным не выполняется без привязки к ней.
 model Organization {
@@ -50,6 +65,43 @@ model Organization {
   conversations Conversation[]
   numbers       WhatsappNumber[]
   templates     MessageTemplate[]
+  broadcasts    Broadcast[]
+}
+
+/// Рассылка по одобренному шаблону. Получатели фиксируются в момент создания,
+/// чтобы отчёт не «поплыл», если контакты потом изменятся.
+model Broadcast {
+  id             String                @id @default(cuid())
+  organizationId String
+  organization   Organization          @relation(fields: [organizationId], references: [id], onDelete: Cascade)
+  templateId     String
+  template       MessageTemplate       @relation(fields: [templateId], references: [id], onDelete: Cascade)
+  name           String
+  /// Поисковый запрос, по которому отобраны получатели. Пусто — все контакты.
+  segmentQuery   String?
+  status         BroadcastStatus       @default(DRAFT)
+  stoppedReason  String?
+  startedAt      DateTime?
+  finishedAt     DateTime?
+  createdAt      DateTime              @default(now())
+  recipients     BroadcastRecipient[]
+
+  @@index([organizationId, createdAt])
+}
+
+model BroadcastRecipient {
+  id          String          @id @default(cuid())
+  broadcastId String
+  broadcast   Broadcast       @relation(fields: [broadcastId], references: [id], onDelete: Cascade)
+  contactId   String
+  contact     Contact         @relation(fields: [contactId], references: [id], onDelete: Cascade)
+  status      RecipientStatus @default(PENDING)
+  wamid       String?
+  error       String?
+  sentAt      DateTime?
+
+  @@unique([broadcastId, contactId])
+  @@index([wamid])
 }
 
 /// Шаблон сообщения. Пока Meta не одобрит, писать по нему клиенту нельзя.
@@ -71,6 +123,7 @@ model MessageTemplate {
   submittedAt    DateTime?
   createdAt      DateTime         @default(now())
   updatedAt      DateTime         @updatedAt
+  broadcasts     Broadcast[]
 
   @@unique([organizationId, name, language])
   @@index([organizationId, status])
@@ -152,6 +205,7 @@ model Contact {
   name           String?
   createdAt      DateTime       @default(now())
   conversations  Conversation[]
+  broadcasts     BroadcastRecipient[]
 
   @@unique([organizationId, waId])
   @@index([organizationId])

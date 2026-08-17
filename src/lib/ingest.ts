@@ -1,4 +1,5 @@
 import { prisma } from "@/lib/db";
+import { applyRecipientStatus } from "@/lib/broadcasts";
 import type { IncomingMessage, StatusUpdate } from "@/lib/whatsapp/parse";
 
 const WINDOW_HOURS = 24;
@@ -78,4 +79,7 @@ export async function applyStatusUpdate(update: StatusUpdate): Promise<void> {
     where: { wamid: update.wamid },
     data: { status: update.status },
   });
+
+  // Тот же wamid может принадлежать сообщению рассылки — тогда обновляем и отчёт.
+  await applyRecipientStatus(update.wamid, update.status);
 }

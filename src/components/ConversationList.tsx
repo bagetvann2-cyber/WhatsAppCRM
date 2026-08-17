@@ -117,6 +117,12 @@ export function ConversationList({
             {canManage && (
               <>
                 <Link
+                  href="/broadcasts"
+                  className="rounded-lg px-2 py-1 text-xs text-ink-muted transition-colors hover:bg-panel-muted hover:text-ink"
+                >
+                  Рассылки
+                </Link>
+                <Link
                   href="/templates"
                   className="rounded-lg px-2 py-1 text-xs text-ink-muted transition-colors hover:bg-panel-muted hover:text-ink"
                 >
