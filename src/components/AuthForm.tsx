@@ -22,6 +22,7 @@ export function AuthForm({
   submitLabel,
   action,
   footer,
+  hidden,
 }: {
   title: string;
   subtitle: string;
@@ -29,6 +30,7 @@ export function AuthForm({
   submitLabel: string;
   action: (prev: FormState, data: FormData) => Promise<FormState>;
   footer: { text: string; linkLabel: string; href: string };
+  hidden?: Record<string, string>;
 }) {
   const [state, formAction, pending] = useActionState(action, null);
 
@@ -41,6 +43,11 @@ export function AuthForm({
         </div>
 
         <form action={formAction} className="flex flex-col gap-4">
+          {hidden &&
+            Object.entries(hidden).map(([name, value]) => (
+              <input key={name} type="hidden" name={name} value={value} />
+            ))}
+
           {fields.map((field) => (
             <label key={field.name} className="flex flex-col gap-1.5">
               <span className="text-sm font-medium text-ink">{field.label}</span>

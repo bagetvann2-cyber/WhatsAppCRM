@@ -101,6 +101,8 @@ export function ConversationList({
   userLabel: string;
   role: string;
 }) {
+  const canManage = role === "OWNER" || role === "ADMIN";
+
   return (
     <>
       <div className="border-b border-line px-4 pt-4 pb-4">
@@ -111,14 +113,24 @@ export function ConversationList({
               {userLabel} · {ROLE_LABEL[role] ?? role.toLowerCase()}
             </p>
           </div>
-          <form action={signOutAction}>
-            <button
-              type="submit"
-              className="shrink-0 rounded-lg px-2 py-1 text-xs text-ink-muted transition-colors hover:bg-panel-muted hover:text-ink"
-            >
-              Выйти
-            </button>
-          </form>
+          <div className="flex shrink-0 items-center gap-1">
+            {canManage && (
+              <Link
+                href="/team"
+                className="rounded-lg px-2 py-1 text-xs text-ink-muted transition-colors hover:bg-panel-muted hover:text-ink"
+              >
+                Команда
+              </Link>
+            )}
+            <form action={signOutAction}>
+              <button
+                type="submit"
+                className="rounded-lg px-2 py-1 text-xs text-ink-muted transition-colors hover:bg-panel-muted hover:text-ink"
+              >
+                Выйти
+              </button>
+            </form>
+          </div>
         </div>
 
         <div className="mb-3 flex items-baseline justify-between gap-2">
