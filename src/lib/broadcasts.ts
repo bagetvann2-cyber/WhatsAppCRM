@@ -1,5 +1,8 @@
 import { prisma } from "@/lib/db";
+import { canAfford, money } from "@/lib/billing";
+import { getBalance, recordOperation } from "@/lib/billing-store";
 import { contactWhere, type ContactFilter } from "@/lib/contacts";
+import { PRICE_PER_MESSAGE, estimateCost } from "@/lib/pricing";
 import { sendTemplateMessage } from "@/lib/whatsapp/client";
 
 export { PRICE_PER_MESSAGE, estimateCost } from "@/lib/pricing";
@@ -174,6 +177,20 @@ export async function runBroadcast(organizationId: string, id: string): Promise<
     throw new Error("Эта рассылка уже запускалась.");
   }
 
+  // Проверяем деньги до первой отправки: рассылка, оборвавшаяся на середине,
+  // это половина клиентов с обрывком акции и объяснение по телефону остальным.
+  const recipientCount = await prisma.broadcastRecipient.count({
+    where: { broadcastId: broadcast.id, status: "PENDING" },
+  });
+  const cost = estimateCost(recipientCount, broadcast.template.category);
+  const balance = await getBalance(organizationId);
+
+  if (!canAfford(balance, cost)) {
+    throw new Error(
+      `На балансе ${money(balance)}, а рассылка стоит примерно ${money(cost)}. Пополните баланс — деньги спишутся только за доставленные сообщения.`,
+    );
+  }
+
   await prisma.broadcast.update({
     where: { id: broadcast.id },
     data: { status: "RUNNING", startedAt: new Date() },
@@ -261,11 +278,39 @@ export async function applyRecipientStatus(wamid: string, status: string): Promi
   }
 
   // Прочитано не понижаем обратно до доставлено: статусы приходят вразнобой.
-  await prisma.broadcastRecipient.updateMany({
+  const updated = await prisma.broadcastRecipient.updateMany({
     where: {
       wamid,
       ...(mapped === "DELIVERED" ? { status: { in: ["PENDING", "SENT"] } } : {}),
     },
     data: { status: mapped },
+  });
+
+  // Meta берёт деньги за доставленное сообщение, а не за отправленное —
+  // списываем ровно в этот момент и ровно один раз: повторный вебхук
+  // с тем же статусом уже никого не переведёт из SENT в DELIVERED.
+  if (mapped === "DELIVERED" && updated.count > 0) {
+    await chargeForDelivered(wamid);
+  }
+}
+
+async function chargeForDelivered(wamid: string): Promise<void> {
+  const recipient = await prisma.broadcastRecipient.findFirst({
+    where: { wamid },
+    include: { broadcast: { include: { template: true } } },
+  });
+
+  if (!recipient) {
+    return;
+  }
+
+  const price = PRICE_PER_MESSAGE[recipient.broadcast.template.category];
+
+  await recordOperation({
+    organizationId: recipient.broadcast.organizationId,
+    amount: -price,
+    kind: "message",
+    description: `Доставлено сообщение рассылки «${recipient.broadcast.name}»`,
+    broadcastId: recipient.broadcastId,
   });
 }

@@ -28,6 +28,8 @@ beforeEach(async () => {
 
   await dropTestOrg(phoneNumberId);
   organizationId = (await createTestOrg(phoneNumberId)).id;
+  // Здесь проверяется отписка, а не баланс: денег даём с запасом.
+  await prisma.organization.update({ where: { id: organizationId }, data: { balance: 100000 } });
 
   const [marketing, utility] = await Promise.all([
     prisma.messageTemplate.create({

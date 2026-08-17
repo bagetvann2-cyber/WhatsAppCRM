@@ -13,6 +13,7 @@ import {
   TeamIcon,
   TemplateIcon,
   UsersIcon,
+  WalletIcon,
 } from "@/components/icons";
 import { initials } from "@/lib/format";
 
@@ -32,6 +33,7 @@ const ITEMS: Item[] = [
   { href: "/ai-bot", label: "ИИ-помощник", Icon: SparkIcon, manageOnly: true },
   { href: "/reports", label: "Отчёты", Icon: ReportIcon, manageOnly: true },
   { href: "/team", label: "Команда", Icon: TeamIcon, manageOnly: true },
+  { href: "/billing", label: "Тариф", Icon: WalletIcon, manageOnly: true },
 ];
 
 export function NavRail({

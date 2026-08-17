@@ -137,6 +137,16 @@ export function SparkIcon(props: SVGProps<SVGSVGElement>) {
   );
 }
 
+export function WalletIcon(props: SVGProps<SVGSVGElement>) {
+  return (
+    <Icon {...props}>
+      <path d="M4.5 8.5a2 2 0 0 1 2-2h11a2 2 0 0 1 2 2v9a2 2 0 0 1-2 2h-11a2 2 0 0 1-2-2z" />
+      <path d="M4.5 10.5h12a1.5 1.5 0 0 1 1.5 1.5v2a1.5 1.5 0 0 1-1.5 1.5h-12" />
+      <path d="M15 13v.2" />
+    </Icon>
+  );
+}
+
 export function ReportIcon(props: SVGProps<SVGSVGElement>) {
   return (
     <Icon {...props}>

@@ -55,13 +55,110 @@ enum RecipientStatus {
   SKIPPED
 }
 
+enum SubscriptionStatus {
+  /// Пробный период. Начинается не с регистрации, а с первого живого сообщения.
+  TRIAL
+  ACTIVE
+  /// Срок вышел, деньги не пришли: рассылки останавливаются, переписка — нет.
+  EXPIRED
+}
+
+enum InvoiceStatus {
+  PENDING
+  PAID
+  CANCELLED
+}
+
+/// Тариф. Цены, лимиты и состав задаются данными: Meta меняет правила чаще,
+/// чем мы готовы выкатывать релиз ради новой цифры.
+model Plan {
+  id            String  @id @default(cuid())
+  code          String  @unique
+  name          String
+  /// Цена подписки в тенге за месяц. 0 — пробный.
+  monthlyPrice  Int
+  /// Сколько операторов включено; каждый следующий стоит extraOperatorPrice.
+  operatorsIncluded  Int @default(3)
+  extraOperatorPrice Int @default(5000)
+  numbersIncluded    Int @default(1)
+  /// Доступ к интеграциям с CRM — отличие «Бизнеса» от «Старта».
+  integrations  Boolean @default(false)
+  trialDays     Int     @default(0)
+  /// Что входит — строками для карточки тарифа, без правки вёрстки.
+  features      String[]
+  sortOrder     Int     @default(0)
+  active        Boolean @default(true)
+
+  subscriptions Subscription[]
+}
+
+model Subscription {
+  id             String             @id @default(cuid())
+  organizationId String             @unique
+  organization   Organization       @relation(fields: [organizationId], references: [id], onDelete: Cascade)
+  planId         String
+  plan           Plan               @relation(fields: [planId], references: [id])
+  status         SubscriptionStatus @default(TRIAL)
+  /// Сколько месяцев оплачено разом: от этого считается скидка за период.
+  periodMonths   Int                @default(1)
+  trialEndsAt    DateTime?
+  paidUntil      DateTime?
+  createdAt      DateTime           @default(now())
+  updatedAt      DateTime           @updatedAt
+}
+
+/// Счёт на оплату. Пока оплата не подключена, счёт создаётся и ждёт:
+/// Kaspi и безналичный расчёт встают на это же место без переделки модели.
+model Invoice {
+  id             String        @id @default(cuid())
+  organizationId String
+  organization   Organization  @relation(fields: [organizationId], references: [id], onDelete: Cascade)
+  /// Номер для клиента: его называют в назначении платежа.
+  number         String        @unique
+  kind           String
+  amount         Int
+  description    String
+  method         String
+  status         InvoiceStatus @default(PENDING)
+  planCode       String?
+  periodMonths   Int?
+  paidAt         DateTime?
+  createdAt      DateTime      @default(now())
+
+  @@index([organizationId, createdAt])
+}
+
+/// Движение по балансу. Баланс организации — сумма операций, но хранится
+/// и отдельным полем: считать историю на каждый показ страницы дорого.
+model BalanceOperation {
+  id             String       @id @default(cuid())
+  organizationId String
+  organization   Organization @relation(fields: [organizationId], references: [id], onDelete: Cascade)
+  /// Плюс — пополнение, минус — списание.
+  amount         Int
+  kind           String
+  description    String
+  /// Списание за рассылку ссылается на неё: в отчёте видно, куда ушли деньги.
+  broadcastId    String?
+  balanceAfter   Int
+  createdAt      DateTime     @default(now())
+
+  @@index([organizationId, createdAt])
+}
+
 /// Компания-клиент платформы. Всё остальное принадлежит организации:
 /// ни один запрос к данным не выполняется без привязки к ней.
 model Organization {
   id            String         @id @default(cuid())
   name          String
   hideCustomerNumbers Boolean  @default(false)
+  /// Баланс на сообщения в тенге. Тиын не храним: в обороте его нет,
+  /// а дробные копейки в биллинге — источник вечных расхождений.
+  balance       Int            @default(0)
   createdAt     DateTime       @default(now())
+  subscription  Subscription?
+  invoices      Invoice[]
+  operations    BalanceOperation[]
   memberships   Membership[]
   invites       Invite[]
   contacts      Contact[]

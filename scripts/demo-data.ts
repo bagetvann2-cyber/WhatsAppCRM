@@ -8,6 +8,7 @@
 import { unlink } from "node:fs/promises";
 import { basename, join, resolve } from "node:path";
 import { prisma } from "@/lib/db";
+import { ensurePlans, recordOperation } from "@/lib/billing-store";
 import { env } from "@/lib/env";
 import { extensionFor } from "@/lib/media";
 import { writeMediaFile } from "@/lib/media-store";
@@ -188,6 +189,9 @@ async function clean(organizationId: string) {
     await unlink(join(resolve(process.cwd(), env.mediaDir()), basename(mediaPath!))).catch(() => {});
   }
 
+  await prisma.balanceOperation.deleteMany({
+    where: { organizationId, description: { contains: "(демо)" } },
+  });
   await prisma.message.deleteMany({ where: { wamid: { startsWith: DEMO_PREFIX } } });
   await prisma.broadcast.deleteMany({ where: { organizationId, name: { startsWith: "Демо:" } } });
   await prisma.messageTemplate.deleteMany({
@@ -355,11 +359,47 @@ async function main() {
     })),
   });
 
+  // Тариф и баланс: без них страница «Тариф» на демонстрации выглядит пустой.
+  await ensurePlans();
+  const startPlan = await prisma.plan.findUniqueOrThrow({ where: { code: "start" } });
+  const paidUntil = new Date();
+  paidUntil.setMonth(paidUntil.getMonth() + 5);
+
+  await prisma.subscription.upsert({
+    where: { organizationId },
+    update: { planId: startPlan.id, status: "ACTIVE", periodMonths: 6, paidUntil },
+    create: {
+      organizationId,
+      planId: startPlan.id,
+      status: "ACTIVE",
+      periodMonths: 6,
+      paidUntil,
+    },
+  });
+
+  await prisma.organization.update({ where: { id: organizationId }, data: { balance: 0 } });
+  // Пометка «(демо)» видна клиенту и по ней же эти строки потом удаляются:
+  // служебный префикс в описании операции заказчику показывать незачем.
+  await recordOperation({
+    organizationId,
+    amount: 50000,
+    kind: "topup",
+    description: "Пополнение баланса через Kaspi (демо)",
+  });
+  await recordOperation({
+    organizationId,
+    amount: -22 * 7,
+    kind: "message",
+    description: "Доставлено 7 сообщений рассылки «Демо: напоминание о записи» (демо)",
+    broadcastId: done.id,
+  });
+
   console.log(`Кабинет «${membership.organization.name}» наполнен:`);
   console.log(`  контактов и диалогов: ${CONTACTS.length}`);
   console.log("  вложений: снимок, голосовое и план лечения в PDF");
   console.log("  шаблонов: 3 (одобрен, на модерации, отклонён)");
   console.log("  рассылок: 1 с отчётом");
+  console.log("  тариф «Старт» оплачен, баланс 49 846 ₸");
 
   await prisma.$disconnect();
 }

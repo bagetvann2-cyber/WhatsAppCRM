@@ -32,6 +32,10 @@ beforeEach(async () => {
   let counter = 0;
   sendMock.mockImplementation(async () => ({ wamid: `wamid.CAST.${++counter}` }));
 
+  // Рассылка не запускается без денег на балансе — это проверяется отдельно
+  // в tests/billing.test.ts, а здесь речь про саму отправку.
+  await prisma.organization.update({ where: { id: organizationId }, data: { balance: 100000 } });
+
   await prisma.broadcast.deleteMany({ where: { organizationId } });
   await prisma.contact.deleteMany({ where: { organizationId } });
   await prisma.messageTemplate.deleteMany({ where: { organizationId } });

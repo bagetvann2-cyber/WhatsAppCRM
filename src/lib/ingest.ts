@@ -1,4 +1,5 @@
 import { prisma } from "@/lib/db";
+import { startTrial } from "@/lib/billing-store";
 import { applyRecipientStatus } from "@/lib/broadcasts";
 import type { IncomingMessage, StatusUpdate } from "@/lib/whatsapp/parse";
 
@@ -35,6 +36,11 @@ export async function saveIncomingMessage(message: IncomingMessage): Promise<Ing
   }
 
   const organizationId = number.organizationId;
+
+  // Первое живое сообщение — это и есть подключённый номер. Пробный период
+  // начинается здесь, а не при регистрации: клиент не сжигает бесплатные дни,
+  // пока разбирается с Meta. Сбой биллинга не должен терять сообщение.
+  await startTrial(organizationId).catch(() => {});
 
   const contact = await prisma.contact.upsert({
     where: { organizationId_waId: { organizationId, waId: message.from } },
