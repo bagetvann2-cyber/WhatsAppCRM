@@ -27,9 +27,11 @@ const CATEGORY_LABEL: Record<TemplateCategory, string> = {
 export function BroadcastForm({
   templates,
   contactCount,
+  tags,
 }: {
   templates: ApprovedTemplate[];
   contactCount: number;
+  tags: { id: string; name: string; count: number }[];
 }) {
   const [state, formAction, pending] = useActionState<FormState, FormData>(
     createBroadcastAction,
@@ -39,10 +41,17 @@ export function BroadcastForm({
   const [templateId, setTemplateId] = useState(templates[0]?.id ?? "");
   const [name, setName] = useState("");
   const [segmentQuery, setSegmentQuery] = useState("");
+  const [tagId, setTagId] = useState("");
 
   const template = templates.find((t) => t.id === templateId);
-  // Точное число получателей знает сервер; здесь верхняя оценка, пока фильтр пуст.
-  const estimatedCount = segmentQuery.trim() ? null : contactCount;
+  const selectedTag = tags.find((t) => t.id === tagId);
+
+  // Точное число получателей знает сервер; здесь оценка по метке или всему списку.
+  const estimatedCount = segmentQuery.trim()
+    ? null
+    : selectedTag
+      ? selectedTag.count
+      : contactCount;
   const price = template ? PRICE_PER_MESSAGE[template.category] : 0;
 
   if (templates.length === 0) {
@@ -78,8 +87,8 @@ export function BroadcastForm({
             {renderTemplate(template.bodyText, template.examples)}
           </p>
           <p className="mt-1.5 text-xs text-ink-faint">
-            Значения переменных берутся из примеров шаблона. Персонализация по карточке контакта —
-            следующий шаг.
+            Вместо первой переменной подставится имя получателя из карточки контакта. Остальные
+            берутся из примеров шаблона и одинаковы для всех.
           </p>
         </div>
       )}
@@ -111,6 +120,25 @@ export function BroadcastForm({
           </span>
         </label>
       </div>
+
+      {tags.length > 0 && (
+        <label className="flex flex-col gap-1.5">
+          <span className="text-sm font-medium text-ink">Метка</span>
+          <select
+            name="segmentTagId"
+            value={tagId}
+            onChange={(e) => setTagId(e.target.value)}
+            className={INPUT}
+          >
+            <option value="">Без ограничения по метке</option>
+            {tags.map((tag) => (
+              <option key={tag.id} value={tag.id}>
+                {tag.name} — {tag.count}
+              </option>
+            ))}
+          </select>
+        </label>
+      )}
 
       <div className="flex flex-wrap items-baseline gap-x-6 gap-y-1 rounded-lg bg-accent-soft px-3 py-2.5 text-sm">
         <span className="text-accent">

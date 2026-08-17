@@ -1,4 +1,5 @@
 import { prisma } from "@/lib/db";
+import { contactWhere, type ContactFilter } from "@/lib/contacts";
 import { sendTemplateMessage } from "@/lib/whatsapp/client";
 
 export { PRICE_PER_MESSAGE, estimateCost } from "@/lib/pricing";
@@ -10,24 +11,29 @@ const SEND_INTERVAL_MS = 120;
 const FAILURE_THRESHOLD = 0.2;
 const FAILURE_MIN_SAMPLE = 10;
 
-/** Кому уйдёт рассылка. Пустой запрос — всем контактам компании. */
-export async function selectRecipients(organizationId: string, query?: string) {
-  const q = query?.trim();
-
+/** Кому уйдёт рассылка. Пустой фильтр — всем контактам компании. */
+export async function selectRecipients(organizationId: string, filter: ContactFilter = {}) {
   return prisma.contact.findMany({
-    where: {
-      organizationId,
-      ...(q
-        ? {
-            OR: [
-              { name: { contains: q, mode: "insensitive" } },
-              { waId: { contains: q } },
-            ],
-          }
-        : {}),
-    },
+    where: contactWhere(organizationId, filter),
     orderBy: { createdAt: "asc" },
   });
+}
+
+/**
+ * Значения переменных для конкретного получателя. {{1}} — имя контакта:
+ * это единственная переменная, которую мы знаем про каждого. Остальные
+ * берутся из примеров шаблона, одинаковые для всех.
+ */
+export function valuesForContact(
+  examples: string[],
+  contact: { name: string | null },
+): string[] {
+  if (examples.length === 0) {
+    return [];
+  }
+
+  const first = contact.name?.trim() || examples[0];
+  return [first, ...examples.slice(1)];
 }
 
 export async function listBroadcasts(organizationId: string) {
@@ -62,6 +68,7 @@ export async function createBroadcast(input: {
   templateId: string;
   name: string;
   segmentQuery?: string;
+  segmentTagIds?: string[];
 }) {
   const template = await prisma.messageTemplate.findFirst({
     where: { id: input.templateId, organizationId: input.organizationId },
@@ -74,7 +81,12 @@ export async function createBroadcast(input: {
     throw new Error("Рассылку можно запускать только по шаблону, одобренному Meta.");
   }
 
-  const contacts = await selectRecipients(input.organizationId, input.segmentQuery);
+  const tagIds = input.segmentTagIds?.filter(Boolean) ?? [];
+  const contacts = await selectRecipients(input.organizationId, {
+    query: input.segmentQuery,
+    tagIds,
+  });
+
   if (contacts.length === 0) {
     throw new Error("В сегменте нет ни одного контакта.");
   }
@@ -85,6 +97,7 @@ export async function createBroadcast(input: {
       templateId: template.id,
       name: input.name.trim() || template.name,
       segmentQuery: input.segmentQuery?.trim() || null,
+      segmentTagIds: tagIds,
       recipients: {
         create: contacts.map((contact) => ({ contactId: contact.id })),
       },
@@ -148,7 +161,7 @@ export async function runBroadcast(organizationId: string, id: string): Promise<
       const { wamid } = await sendTemplateMessage(
         recipient.contact.waId,
         { name: broadcast.template.name, language: broadcast.template.language },
-        broadcast.template.examples,
+        valuesForContact(broadcast.template.examples, recipient.contact),
       );
 
       await prisma.broadcastRecipient.update({

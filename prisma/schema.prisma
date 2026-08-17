@@ -66,6 +66,7 @@ model Organization {
   numbers       WhatsappNumber[]
   templates     MessageTemplate[]
   broadcasts    Broadcast[]
+  tags          Tag[]
 }
 
 /// Рассылка по одобренному шаблону. Получатели фиксируются в момент создания,
@@ -79,6 +80,8 @@ model Broadcast {
   name           String
   /// Поисковый запрос, по которому отобраны получатели. Пусто — все контакты.
   segmentQuery   String?
+  /// Метки, по которым отобран сегмент. Пусто — без ограничения по меткам.
+  segmentTagIds  String[]
   status         BroadcastStatus       @default(DRAFT)
   stoppedReason  String?
   startedAt      DateTime?
@@ -198,17 +201,45 @@ model Invite {
 }
 
 model Contact {
-  id             String         @id @default(cuid())
+  id             String               @id @default(cuid())
   organizationId String
-  organization   Organization   @relation(fields: [organizationId], references: [id], onDelete: Cascade)
+  organization   Organization         @relation(fields: [organizationId], references: [id], onDelete: Cascade)
   waId           String
   name           String?
-  createdAt      DateTime       @default(now())
+  /// Заметка оператора — видна команде, клиенту нет.
+  note           String?
+  /// Откуда пришёл контакт: написал сам, импорт, перенос истории.
+  source         String?
+  createdAt      DateTime             @default(now())
   conversations  Conversation[]
   broadcasts     BroadcastRecipient[]
+  tags           ContactTag[]
 
   @@unique([organizationId, waId])
   @@index([organizationId])
+}
+
+/// Метка для сегментации: «постоянный», «брекеты», «не звонить».
+model Tag {
+  id             String       @id @default(cuid())
+  organizationId String
+  organization   Organization @relation(fields: [organizationId], references: [id], onDelete: Cascade)
+  name           String
+  createdAt      DateTime     @default(now())
+  contacts       ContactTag[]
+
+  @@unique([organizationId, name])
+  @@index([organizationId])
+}
+
+model ContactTag {
+  contactId String
+  contact   Contact @relation(fields: [contactId], references: [id], onDelete: Cascade)
+  tagId     String
+  tag       Tag     @relation(fields: [tagId], references: [id], onDelete: Cascade)
+
+  @@id([contactId, tagId])
+  @@index([tagId])
 }
 
 model Conversation {

@@ -24,6 +24,7 @@ export async function createBroadcastAction(_prev: FormState, data: FormData): P
       templateId: text(data, "templateId"),
       name: text(data, "name"),
       segmentQuery: text(data, "segmentQuery"),
+      segmentTagIds: [text(data, "segmentTagId")].filter(Boolean),
     });
 
     // Отправка идёт в фоне: страница не должна ждать всю очередь.

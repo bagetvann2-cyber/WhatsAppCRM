@@ -6,6 +6,7 @@ import { prisma } from "@/lib/db";
 import { requireUser } from "@/lib/session";
 import { canManageTeam } from "@/lib/team";
 import { countByStatus, listBroadcasts } from "@/lib/broadcasts";
+import { listTags } from "@/lib/contacts";
 
 export const dynamic = "force-dynamic";
 
@@ -31,13 +32,14 @@ export default async function BroadcastsPage() {
     redirect("/");
   }
 
-  const [templates, contactCount, broadcasts] = await Promise.all([
+  const [templates, contactCount, broadcasts, tags] = await Promise.all([
     prisma.messageTemplate.findMany({
       where: { organizationId: organization.id, status: "APPROVED" },
       orderBy: { name: "asc" },
     }),
     prisma.contact.count({ where: { organizationId: organization.id } }),
     listBroadcasts(organization.id),
+    listTags(organization.id),
   ]);
 
   return (
@@ -59,6 +61,7 @@ export default async function BroadcastsPage() {
         <h2 className="mb-4 text-sm font-semibold text-ink">Новая рассылка</h2>
         <BroadcastForm
           contactCount={contactCount}
+          tags={tags.map((t) => ({ id: t.id, name: t.name, count: t._count.contacts }))}
           templates={templates.map((t) => ({
             id: t.id,
             name: t.name,

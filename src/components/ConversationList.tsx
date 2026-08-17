@@ -114,6 +114,12 @@ export function ConversationList({
             </p>
           </div>
           <div className="flex shrink-0 items-center gap-1">
+            <Link
+              href="/contacts"
+              className="rounded-lg px-2 py-1 text-xs text-ink-muted transition-colors hover:bg-panel-muted hover:text-ink"
+            >
+              Контакты
+            </Link>
             {canManage && (
               <>
                 <Link

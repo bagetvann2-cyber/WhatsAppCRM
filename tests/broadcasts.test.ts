@@ -9,7 +9,9 @@ import {
   runBroadcast,
   selectRecipients,
   stopBroadcast,
+  valuesForContact,
 } from "@/lib/broadcasts";
+import { createTag, toggleTag } from "@/lib/contacts";
 import { createTestOrg, dropTestOrg } from "./helpers";
 
 const phoneNumberId = "PNID-CAST";
@@ -76,9 +78,41 @@ test("пустой сегмент — это все контакты компа�
 });
 
 test("сегмент фильтрует по имени и по номеру", async () => {
-  expect(await selectRecipients(organizationId, "Ержан")).toHaveLength(1);
-  expect(await selectRecipients(organizationId, "7702")).toHaveLength(1);
-  expect(await selectRecipients(organizationId, "нет такого")).toHaveLength(0);
+  expect(await selectRecipients(organizationId, { query: "Ержан" })).toHaveLength(1);
+  expect(await selectRecipients(organizationId, { query: "7702" })).toHaveLength(1);
+  expect(await selectRecipients(organizationId, { query: "нет такого" })).toHaveLength(0);
+});
+
+test("сегмент можно сузить меткой", async () => {
+  const tag = await createTag(organizationId, "постоянный");
+  const contacts = await prisma.contact.findMany({ where: { organizationId } });
+  await toggleTag(organizationId, contacts[0].id, tag.id);
+
+  expect(await selectRecipients(organizationId, { tagIds: [tag.id] })).toHaveLength(1);
+
+  const broadcast = await createBroadcast({
+    organizationId,
+    templateId,
+    name: "Только постоянным",
+    segmentTagIds: [tag.id],
+  });
+
+  expect(await prisma.broadcastRecipient.count({ where: { broadcastId: broadcast.id } })).toBe(1);
+});
+
+test("имя контакта подставляется вместо первой переменной", () => {
+  expect(valuesForContact(["Айгерим", "16:30"], { name: "Ержан" })).toEqual(["Ержан", "16:30"]);
+  expect(valuesForContact(["Айгерим"], { name: null })).toEqual(["Айгерим"]);
+  expect(valuesForContact(["Айгерим"], { name: "   " })).toEqual(["Айгерим"]);
+  expect(valuesForContact([], { name: "Ержан" })).toEqual([]);
+});
+
+test("рассылка уходит с именем каждого получателя", async () => {
+  const broadcast = await createBroadcast({ organizationId, templateId, name: "Именная" });
+  await runBroadcast(organizationId, broadcast.id);
+
+  const names = sendMock.mock.calls.map((call) => call[2][0]);
+  expect(names).toEqual(["Айгерим", "Ержан", "Дана"]);
 });
 
 test("рассылка фиксирует получателей в момент создания", async () => {
