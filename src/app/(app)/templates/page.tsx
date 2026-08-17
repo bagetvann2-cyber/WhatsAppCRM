@@ -6,7 +6,7 @@ import { requireUser } from "@/lib/session";
 import { canManageTeam } from "@/lib/team";
 import { statusLabel } from "@/lib/templates";
 import { listTemplates } from "@/lib/templates-store";
-import { deleteTemplateAction, sendForReviewAction } from "@/app/templates/actions";
+import { deleteTemplateAction, sendForReviewAction } from "@/app/(app)/templates/actions";
 
 export const dynamic = "force-dynamic";
 
@@ -31,13 +31,6 @@ export default async function TemplatesPage() {
 
   return (
     <main className="mx-auto max-w-5xl px-4 py-8 md:px-6">
-      <Link
-        href="/"
-        className="inline-flex items-center gap-1 text-sm text-ink-muted transition-colors hover:text-ink"
-      >
-        <BackIcon className="size-4" />К диалогам
-      </Link>
-
       <h1 className="mt-4 text-2xl font-bold tracking-tight text-ink">Шаблоны сообщений</h1>
       <p className="mt-1.5 max-w-2xl text-sm text-ink-muted">
         Написать клиенту первым — или ответить, когда прошло больше 24 часов, — можно только

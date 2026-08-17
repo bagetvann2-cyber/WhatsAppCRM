@@ -44,13 +44,6 @@ export default async function BroadcastsPage() {
 
   return (
     <main className="mx-auto max-w-3xl px-4 py-8 md:px-6">
-      <Link
-        href="/"
-        className="inline-flex items-center gap-1 text-sm text-ink-muted transition-colors hover:text-ink"
-      >
-        <BackIcon className="size-4" />К диалогам
-      </Link>
-
       <h1 className="mt-4 text-2xl font-bold tracking-tight text-ink">Рассылки</h1>
       <p className="mt-1.5 max-w-2xl text-sm text-ink-muted">
         Отправка по одобренному шаблону всем контактам или их части. Стоимость считается до

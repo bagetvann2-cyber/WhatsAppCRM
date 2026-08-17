@@ -2,7 +2,7 @@
 
 import { useActionState } from "react";
 import { AlertIcon } from "@/components/icons";
-import { createInviteAction, type FormState } from "@/app/team/actions";
+import { createInviteAction, type FormState } from "@/app/(app)/team/actions";
 
 export function InviteForm() {
   const [state, formAction, pending] = useActionState<FormState, FormData>(

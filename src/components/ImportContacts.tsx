@@ -2,7 +2,7 @@
 
 import { useActionState, useState } from "react";
 import { AlertIcon } from "@/components/icons";
-import { importAction, type FormState } from "@/app/contacts/actions";
+import { importAction, type FormState } from "@/app/(app)/contacts/actions";
 
 export function ImportContacts() {
   const [open, setOpen] = useState(false);

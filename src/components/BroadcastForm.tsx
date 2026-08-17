@@ -2,7 +2,7 @@
 
 import { useActionState, useState } from "react";
 import { AlertIcon } from "@/components/icons";
-import { createBroadcastAction, type FormState } from "@/app/broadcasts/actions";
+import { createBroadcastAction, type FormState } from "@/app/(app)/broadcasts/actions";
 import { PRICE_PER_MESSAGE } from "@/lib/pricing";
 import { renderTemplate } from "@/lib/templates";
 import type { TemplateCategory } from "@/generated/prisma/client";

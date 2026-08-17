@@ -6,7 +6,7 @@ import { BackIcon } from "@/components/icons";
 import { initials } from "@/lib/format";
 import { requireUser } from "@/lib/session";
 import { canManageTeam, listInvites, listMembers } from "@/lib/team";
-import { revokeInviteAction } from "@/app/team/actions";
+import { revokeInviteAction } from "@/app/(app)/team/actions";
 
 export const dynamic = "force-dynamic";
 
@@ -39,13 +39,6 @@ export default async function TeamPage() {
 
   return (
     <main className="mx-auto max-w-3xl px-4 py-8 md:px-6">
-      <Link
-        href="/"
-        className="inline-flex items-center gap-1 text-sm text-ink-muted transition-colors hover:text-ink"
-      >
-        <BackIcon className="size-4" />К диалогам
-      </Link>
-
       <h1 className="mt-4 text-2xl font-bold tracking-tight text-ink">Команда</h1>
       <p className="mt-1.5 text-sm text-ink-muted">
         {organization.name} · {members.length}{" "}

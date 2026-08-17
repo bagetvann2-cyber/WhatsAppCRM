@@ -2,7 +2,7 @@
 
 import { useActionState, useState } from "react";
 import { AlertIcon } from "@/components/icons";
-import { createTemplateAction, type FormState } from "@/app/templates/actions";
+import { createTemplateAction, type FormState } from "@/app/(app)/templates/actions";
 import {
   LIMITS,
   TEMPLATE_CATEGORIES,

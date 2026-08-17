@@ -33,7 +33,7 @@ function groupByDay(messages: ThreadMessage[]) {
 }
 
 export default async function ChatPage({ params, searchParams }: PageProps<"/chat/[id]">) {
-  const { organization, user, role } = await requireUser();
+  const { organization } = await requireUser();
   const { id } = await params;
   const { q } = await searchParams;
   const query = typeof q === "string" ? q : "";
@@ -62,9 +62,6 @@ export default async function ChatPage({ params, searchParams }: PageProps<"/cha
             conversations={conversations}
             activeId={conversation.id}
             query={query}
-            organizationName={organization.name}
-            userLabel={user.name ?? user.email}
-            role={role}
           />
         }
       >

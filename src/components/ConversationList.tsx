@@ -1,5 +1,4 @@
 import Link from "next/link";
-import { signOutAction } from "@/app/(auth)/actions";
 import { SearchBox } from "@/components/SearchBox";
 import { LockIcon, SearchIcon } from "@/components/icons";
 import type { ConversationListItem } from "@/lib/conversations";
@@ -80,79 +79,18 @@ function ConversationRow({
   );
 }
 
-const ROLE_LABEL: Record<string, string> = {
-  OWNER: "владелец",
-  ADMIN: "администратор",
-  OPERATOR: "оператор",
-};
-
 export function ConversationList({
   conversations,
   activeId,
   query,
-  organizationName,
-  userLabel,
-  role,
 }: {
   conversations: ConversationListItem[];
   activeId?: string;
   query: string;
-  organizationName: string;
-  userLabel: string;
-  role: string;
 }) {
-  const canManage = role === "OWNER" || role === "ADMIN";
-
   return (
     <>
-      <div className="border-b border-line px-4 pt-4 pb-4">
-        <div className="mb-4 flex items-start justify-between gap-2">
-          <div className="min-w-0">
-            <p className="truncate text-sm font-semibold text-ink">{organizationName}</p>
-            <p className="truncate text-xs text-ink-faint">
-              {userLabel} · {ROLE_LABEL[role] ?? role.toLowerCase()}
-            </p>
-          </div>
-          <div className="flex shrink-0 items-center gap-1">
-            <Link
-              href="/contacts"
-              className="rounded-lg px-2 py-1 text-xs text-ink-muted transition-colors hover:bg-panel-muted hover:text-ink"
-            >
-              Контакты
-            </Link>
-            {canManage && (
-              <>
-                <Link
-                  href="/broadcasts"
-                  className="rounded-lg px-2 py-1 text-xs text-ink-muted transition-colors hover:bg-panel-muted hover:text-ink"
-                >
-                  Рассылки
-                </Link>
-                <Link
-                  href="/templates"
-                  className="rounded-lg px-2 py-1 text-xs text-ink-muted transition-colors hover:bg-panel-muted hover:text-ink"
-                >
-                  Шаблоны
-                </Link>
-                <Link
-                  href="/team"
-                  className="rounded-lg px-2 py-1 text-xs text-ink-muted transition-colors hover:bg-panel-muted hover:text-ink"
-                >
-                  Команда
-                </Link>
-              </>
-            )}
-            <form action={signOutAction}>
-              <button
-                type="submit"
-                className="rounded-lg px-2 py-1 text-xs text-ink-muted transition-colors hover:bg-panel-muted hover:text-ink"
-              >
-                Выйти
-              </button>
-            </form>
-          </div>
-        </div>
-
+      <div className="border-b border-line px-4 pt-5 pb-4">
         <div className="mb-3 flex items-baseline justify-between gap-2">
           <h1 className="text-lg font-bold tracking-tight text-ink">Диалоги</h1>
           <span className="text-xs text-ink-faint">

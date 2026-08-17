@@ -1,6 +1,6 @@
 import Link from "next/link";
 import { AuthForm } from "@/components/AuthForm";
-import { acceptInviteAction } from "@/app/team/actions";
+import { acceptInviteAction } from "@/app/(app)/team/actions";
 import { checkInvite } from "@/lib/team";
 
 export const dynamic = "force-dynamic";

@@ -2,7 +2,7 @@
 
 import Link from "next/link";
 import { useState } from "react";
-import { saveContactAction, toggleTagAction } from "@/app/contacts/actions";
+import { saveContactAction, toggleTagAction } from "@/app/(app)/contacts/actions";
 import { formatPhone, initials } from "@/lib/format";
 
 type Tag = { id: string; name: string };

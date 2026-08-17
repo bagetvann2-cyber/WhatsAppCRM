@@ -101,6 +101,67 @@ export function InboxIcon(props: SVGProps<SVGSVGElement>) {
   );
 }
 
+export function ChatIcon(props: SVGProps<SVGSVGElement>) {
+  return (
+    <Icon {...props}>
+      <path d="M20 12.5c0 3.6-3.6 6.5-8 6.5-.9 0-1.8-.1-2.6-.35L5 20l1.2-3.1C4.85 15.75 4 14.2 4 12.5 4 8.9 7.6 6 12 6s8 2.9 8 6.5z" />
+    </Icon>
+  );
+}
+
+export function UsersIcon(props: SVGProps<SVGSVGElement>) {
+  return (
+    <Icon {...props}>
+      <circle cx="9" cy="8.5" r="3" />
+      <path d="M3.5 19.5c0-2.8 2.5-5 5.5-5s5.5 2.2 5.5 5" />
+      <path d="M16 6.2a3 3 0 0 1 0 5.6" />
+      <path d="M17.5 14.9c1.8.6 3 2.2 3 4.1" />
+    </Icon>
+  );
+}
+
+export function TeamIcon(props: SVGProps<SVGSVGElement>) {
+  return (
+    <Icon {...props}>
+      <circle cx="10" cy="8.5" r="3" />
+      <path d="M4.5 19.5c0-2.8 2.5-5 5.5-5s5.5 2.2 5.5 5" />
+      <path d="M18 8v5" />
+      <path d="M15.5 10.5h5" />
+    </Icon>
+  );
+}
+
+export function MegaphoneIcon(props: SVGProps<SVGSVGElement>) {
+  return (
+    <Icon {...props}>
+      <path d="M4 10.5v3a1.5 1.5 0 0 0 1.5 1.5H8l6 4V6.5l-6 4H5.5A1.5 1.5 0 0 0 4 12z" />
+      <path d="M17.5 9.5a4 4 0 0 1 0 5" />
+      <path d="M8 15v4.5" />
+    </Icon>
+  );
+}
+
+export function TemplateIcon(props: SVGProps<SVGSVGElement>) {
+  return (
+    <Icon {...props}>
+      <rect x="4.5" y="4" width="15" height="16" rx="2" />
+      <path d="M8 9h8" />
+      <path d="M8 12.5h8" />
+      <path d="M8 16h4" />
+    </Icon>
+  );
+}
+
+export function LogoutIcon(props: SVGProps<SVGSVGElement>) {
+  return (
+    <Icon {...props}>
+      <path d="M14 5.5H7.5a2 2 0 0 0-2 2v9a2 2 0 0 0 2 2H14" />
+      <path d="M17 15l3-3-3-3" />
+      <path d="M20 12h-8.5" />
+    </Icon>
+  );
+}
+
 export function AttachmentIcon(props: SVGProps<SVGSVGElement>) {
   return (
     <Icon {...props}>
