@@ -1825,10 +1825,14 @@ Expected: сообщение приходит на телефон; в переп
 
 - [ ] **Шаг 7: Проверить закрытие окна**
 
-В базе вручную состарить окно:
+В базе вручную состарить окно. Важно: колонка хранится без часового пояса, а Node читает её как UTC — с голым `NOW()` (локальное время Алматы, +05) окно уедет в будущее и останется открытым. Поэтому явно `AT TIME ZONE 'UTC'`:
 
 ```powershell
-& "C:\Program Files\PostgreSQL\17\bin\psql.exe" -U postgres -d whatsapp_crm_dev -c "UPDATE \"Conversation\" SET \"windowExpiresAt\" = NOW() - INTERVAL '1 hour';"
+$env:PGPASSWORD='postgres'
+$sql = @'
+UPDATE "Conversation" SET "windowExpiresAt" = (NOW() AT TIME ZONE 'UTC') - INTERVAL '1 hour';
+'@
+$sql | & "C:\Program Files\PostgreSQL\17\bin\psql.exe" -U postgres -h localhost -d whatsapp_crm_dev -q
 ```
 
 Обновить страницу диалога.
@@ -1838,7 +1842,11 @@ Expected: в шапке «Окно 24 часа закрыто», поле вво
 - [ ] **Шаг 8: Вернуть окно и записать инструкцию**
 
 ```powershell
-& "C:\Program Files\PostgreSQL\17\bin\psql.exe" -U postgres -d whatsapp_crm_dev -c "UPDATE \"Conversation\" SET \"windowExpiresAt\" = NOW() + INTERVAL '24 hours';"
+$env:PGPASSWORD='postgres'
+$sql = @'
+UPDATE "Conversation" SET "windowExpiresAt" = (NOW() AT TIME ZONE 'UTC') + INTERVAL '24 hours';
+'@
+$sql | & "C:\Program Files\PostgreSQL\17\bin\psql.exe" -U postgres -h localhost -d whatsapp_crm_dev -q
 ```
 
 Дописать в `README.md` раздел «Запуск разработки»: команды из шагов 1–4, требование обновлять Callback URL при перезапуске туннеля и напоминание, что временный токен Meta живёт 24 часа.
