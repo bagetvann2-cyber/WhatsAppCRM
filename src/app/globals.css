@@ -36,8 +36,13 @@
   --shadow-bubble: 0 1px 1px rgb(16 21 25 / 0.05);
 }
 
+/*
+ * Тёмная тема достаётся двумя путями: системной настройкой и явным выбором
+ * в кабинете. Явный выбор сильнее системного — поэтому системный блок
+ * отступает, когда пользователь попросил светлую.
+ */
 @media (prefers-color-scheme: dark) {
-  :root {
+  :root:not([data-theme="light"]) {
     --page: #0c1013;
     --panel: #151b21;
     --panel-muted: #1a2129;
@@ -67,6 +72,36 @@
     --shadow-bubble: 0 1px 1px rgb(0 0 0 / 0.3);
   }
 }
+
+:root[data-theme="dark"] {
+    --page: #0c1013;
+    --panel: #151b21;
+    --panel-muted: #1a2129;
+    --raised: #1b232b;
+
+    --line: #26313a;
+    --line-strong: #37444f;
+
+    --ink: #e7edf2;
+    --ink-muted: #9aa6b2;
+    --ink-faint: #6f7c89;
+
+    --accent: #2ea27c;
+    --accent-hover: #38b78d;
+    --accent-ink: #07130f;
+    --accent-soft: #15271f;
+    --accent-line: #26473a;
+
+    --warn: #e0a458;
+    --warn-soft: #2a2015;
+    --danger: #e98b80;
+    --danger-soft: #2c1a18;
+
+    --ring: #38b78d;
+
+    --shadow-panel: 0 1px 2px rgb(0 0 0 / 0.4), 0 8px 24px -12px rgb(0 0 0 / 0.7);
+    --shadow-bubble: 0 1px 1px rgb(0 0 0 / 0.3);
+  }
 
 @theme inline {
   --color-page: var(--page);
@@ -117,4 +152,33 @@ body {
   outline: 2px solid var(--ring);
   outline-offset: 2px;
   border-radius: 4px;
+}
+
+/*
+ * Кнопка темы показывает ту иконку, куда переключит: на светлой теме — луну,
+ * на тёмной — солнце. Выбор делает CSS, а не React: так нечему разъезжаться
+ * между сервером и браузером.
+ */
+.theme-icon-light {
+  display: none;
+}
+
+@media (prefers-color-scheme: dark) {
+  :root:not([data-theme="light"]) .theme-icon-dark {
+    display: none;
+  }
+  :root:not([data-theme="light"]) .theme-icon-light {
+    display: block;
+  }
+}
+
+:root[data-theme="dark"] .theme-icon-dark {
+  display: none;
+}
+:root[data-theme="dark"] .theme-icon-light {
+  display: block;
+}
+
+:root[data-theme="light"] .theme-icon-dark {
+  display: block;
 }

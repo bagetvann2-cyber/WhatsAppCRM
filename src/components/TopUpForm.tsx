@@ -18,9 +18,7 @@ export function TopUpForm() {
   const utility = Math.floor(value / PRICE_PER_MESSAGE.UTILITY);
 
   return (
-    <form action={action} className="flex flex-col gap-3 rounded-xl border border-line bg-panel p-4">
-      <p className="text-sm font-semibold text-ink">Пополнить баланс</p>
-
+    <form action={action} className="flex flex-col gap-3">
       <div className="flex flex-wrap gap-2">
         {PRESETS.map((preset) => (
           <button

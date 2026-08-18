@@ -3,6 +3,7 @@ import { cancelInvoiceAction, confirmPaymentAction } from "@/app/(app)/billing/a
 import { PlanCards } from "@/components/PlanCards";
 import { TopUpForm } from "@/components/TopUpForm";
 import { AlertIcon, LockIcon } from "@/components/icons";
+import { Empty, Footnote, Group, GroupTitle, PageHead, Row, Table, Td, Th } from "@/components/ledger";
 import { balanceLevel, daysLeft, money } from "@/lib/billing";
 import {
   getSubscription,
@@ -55,107 +56,86 @@ export default async function BillingPage() {
 
   return (
     <main className="mx-auto max-w-3xl px-4 py-8 md:px-6">
-      <h1 className="text-2xl font-bold tracking-tight text-ink">Тариф и баланс</h1>
-      <p className="mt-1.5 mb-8 max-w-2xl text-sm text-ink-muted">
+      <PageHead title="Тариф и баланс">
         Подписка оплачивает интерфейс, баланс — сами сообщения. Meta берёт деньги за доставленное
         сообщение, поэтому и мы списываем по факту доставки, а не отправки.
-      </p>
+      </PageHead>
 
-      <section className="grid gap-3 sm:grid-cols-2">
-        <div className="rounded-xl border border-line bg-panel px-4 py-3.5">
-          <p className="text-sm text-ink-muted">Тариф</p>
-          <p className="mt-0.5 text-lg font-bold text-ink">{subscription.plan.name}</p>
-          <p className="mt-1 text-xs text-ink-faint">
-            {subscription.status === "TRIAL" && until === null
+      <Group className="mt-0">
+        <GroupTitle>Сейчас</GroupTitle>
+
+        <Row
+          label={subscription.plan.name}
+          note={
+            subscription.status === "TRIAL" && until === null
               ? "пробный период начнётся с первым сообщением клиента"
               : active
                 ? `действует ещё ${left} дн.`
-                : "срок вышел — рассылки остановлены, переписка работает"}
-          </p>
-        </div>
+                : "срок вышел — рассылки остановлены, переписка работает"
+          }
+          value={active ? "оплачен" : "просрочен"}
+          tone={active ? "accent" : "warn"}
+        />
 
-        <div
-          className={`rounded-xl border px-4 py-3.5 ${
-            level === "ok" ? "border-line bg-panel" : "border-warn/40 bg-warn-soft"
-          }`}
-        >
-          <p className={`text-sm ${level === "ok" ? "text-ink-muted" : "text-warn"}`}>
-            Баланс на сообщения
-          </p>
-          <p
-            className={`mt-0.5 text-lg font-bold tabular-nums ${
-              level === "ok" ? "text-ink" : "text-warn"
-            }`}
-          >
-            {money(fresh.balance)}
-          </p>
-          <p className={`mt-1 text-xs ${level === "ok" ? "text-ink-faint" : "text-warn"}`}>
-            {level === "empty"
+        <Row
+          label="Баланс на сообщения"
+          note={
+            level === "empty"
               ? "рассылки не запустятся, пока баланс не пополнен"
               : level === "low"
                 ? "низкий баланс — пополните до следующей рассылки"
-                : "хватает на рассылки"}
-          </p>
-        </div>
-      </section>
-
-      <section className="mt-8">
-        <TopUpForm />
-      </section>
-
-      <section className="mt-10">
-        <h2 className="mb-3 text-sm font-semibold text-ink">Тарифы</h2>
-        <PlanCards
-          plans={plans.map((plan) => ({
-            code: plan.code,
-            name: plan.name,
-            monthlyPrice: plan.monthlyPrice,
-            operatorsIncluded: plan.operatorsIncluded,
-            extraOperatorPrice: plan.extraOperatorPrice,
-            features: plan.features,
-          }))}
-          currentCode={subscription.plan.code}
-          operators={members.length}
+                : "хватает на рассылки"
+          }
+          value={money(fresh.balance)}
+          tone={level === "ok" ? "plain" : "warn"}
         />
-        <p className="mt-3 text-xs text-ink-faint">
+      </Group>
+
+      <Group>
+        <GroupTitle>Пополнить</GroupTitle>
+        <div className="pt-4">
+          <TopUpForm />
+        </div>
+      </Group>
+
+      <Group>
+        <GroupTitle>Тарифы</GroupTitle>
+        <div className="pt-4">
+          <PlanCards
+            plans={plans.map((plan) => ({
+              code: plan.code,
+              name: plan.name,
+              monthlyPrice: plan.monthlyPrice,
+              operatorsIncluded: plan.operatorsIncluded,
+              extraOperatorPrice: plan.extraOperatorPrice,
+              features: plan.features,
+            }))}
+            currentCode={subscription.plan.code}
+            operators={members.length}
+          />
+        </div>
+        <Footnote>
           В кабинете {members.length} сотрудников. Сверх включённых в тариф каждый считается
           отдельно — сумма в карточке уже с этой доплатой.
-        </p>
-      </section>
+        </Footnote>
+      </Group>
 
-      <section className="mt-10">
-        <h2 className="mb-3 text-sm font-semibold text-ink">Счета</h2>
+      <Group>
+        <GroupTitle>Счета</GroupTitle>
 
         {invoices.length === 0 ? (
-          <p className="rounded-xl border border-line bg-panel px-4 py-6 text-center text-sm text-ink-muted">
-            Счетов пока нет.
-          </p>
+          <Empty>Счетов пока нет.</Empty>
         ) : (
-          <ul className="flex flex-col gap-2">
-            {invoices.map((invoice) => (
-              <li
-                key={invoice.id}
-                className="flex flex-wrap items-center gap-x-4 gap-y-1 rounded-xl border border-line bg-panel px-4 py-3"
-              >
-                <span className="font-medium text-ink tabular-nums">№{invoice.number}</span>
-                <span className="min-w-0 flex-1 text-sm text-ink-muted">
-                  {invoice.description} · {METHOD_LABEL[invoice.method] ?? invoice.method}
-                </span>
-                <span className="font-semibold text-ink tabular-nums">{money(invoice.amount)}</span>
-                <span
-                  className={`rounded-full px-2 py-0.5 text-xs ${
-                    invoice.status === "PAID"
-                      ? "bg-accent-soft text-accent"
-                      : invoice.status === "PENDING"
-                        ? "bg-warn-soft text-warn"
-                        : "bg-panel-muted text-ink-faint"
-                  }`}
-                >
-                  {INVOICE_LABEL[invoice.status]}
-                </span>
-
+          invoices.map((invoice) => (
+            <Row
+              key={invoice.id}
+              label={`№${invoice.number} · ${invoice.description}`}
+              note={`${METHOD_LABEL[invoice.method] ?? invoice.method} · ${INVOICE_LABEL[invoice.status]}`}
+              tone={invoice.status === "PAID" ? "accent" : "plain"}
+            >
+              <span className="flex shrink-0 items-baseline gap-4">
                 {invoice.status === "PENDING" && (
-                  <span className="flex items-center gap-3">
+                  <>
                     {process.env.NODE_ENV !== "production" && (
                       <form action={confirmPaymentAction}>
                         <input type="hidden" name="invoiceId" value={invoice.id} />
@@ -176,68 +156,72 @@ export default async function BillingPage() {
                         Отменить
                       </button>
                     </form>
-                  </span>
+                  </>
                 )}
-              </li>
-            ))}
-          </ul>
+                <span
+                  className={`text-lg leading-none font-semibold tabular-nums ${
+                    invoice.status === "PAID" ? "text-accent" : "text-ink"
+                  }`}
+                >
+                  {money(invoice.amount)}
+                </span>
+              </span>
+            </Row>
+          ))
         )}
 
-        <p className="mt-3 flex items-start gap-2 text-xs text-ink-faint">
-          <LockIcon className="mt-0.5 size-3.5 shrink-0" />
+        <Footnote icon={<LockIcon className="mt-0.5 size-3.5 shrink-0" />}>
           Приём оплаты пока не подключён: счёт выставляется и ждёт денег. Kaspi и банковский
           платёж встанут на это же место — им останется пометить счёт оплаченным.
-          {process.env.NODE_ENV !== "production" && " Кнопка «Отметить оплаченным» есть только в разработке."}
-        </p>
-      </section>
+          {process.env.NODE_ENV !== "production" &&
+            " Кнопка «Отметить оплаченным» есть только в разработке."}
+        </Footnote>
+      </Group>
 
-      <section className="mt-10">
-        <h2 className="mb-3 text-sm font-semibold text-ink">История списаний</h2>
+      <Group>
+        <GroupTitle>История списаний</GroupTitle>
 
         {operations.length === 0 ? (
-          <p className="rounded-xl border border-line bg-panel px-4 py-6 text-center text-sm text-ink-muted">
-            Движений по балансу пока не было.
-          </p>
+          <Empty>Движений по балансу пока не было.</Empty>
         ) : (
-          <div className="overflow-x-auto rounded-xl border border-line bg-panel">
-            <table className="w-full text-sm">
-              <caption className="sr-only">История операций по балансу</caption>
-              <thead>
-                <tr className="border-b border-line text-left text-xs text-ink-faint">
-                  <th scope="col" className="px-4 py-2.5 font-medium">Когда</th>
-                  <th scope="col" className="px-4 py-2.5 font-medium">За что</th>
-                  <th scope="col" className="px-4 py-2.5 text-right font-medium">Сумма</th>
-                  <th scope="col" className="px-4 py-2.5 text-right font-medium">Остаток</th>
-                </tr>
-              </thead>
-              <tbody className="divide-y divide-line">
-                {operations.map((operation) => (
-                  <tr key={operation.id}>
-                    <td className="px-4 py-2.5 text-ink-faint tabular-nums">
-                      {operation.createdAt.toLocaleString("ru-RU", {
-                        day: "numeric",
-                        month: "short",
-                        hour: "2-digit",
-                        minute: "2-digit",
-                      })}
-                    </td>
-                    <td className="px-4 py-2.5 text-ink-muted">{operation.description}</td>
-                    <td
-                      className={`px-4 py-2.5 text-right font-medium tabular-nums ${
-                        operation.amount >= 0 ? "text-accent" : "text-ink"
-                      }`}
-                    >
-                      {operation.amount >= 0 ? "+" : "−"}
-                      {money(Math.abs(operation.amount))}
-                    </td>
-                    <td className="px-4 py-2.5 text-right text-ink-muted tabular-nums">
-                      {money(operation.balanceAfter)}
-                    </td>
-                  </tr>
-                ))}
-              </tbody>
-            </table>
-          </div>
+          <Table
+            caption="История операций по балансу"
+            head={
+              <>
+                <Th>Когда</Th>
+                <Th>За что</Th>
+                <Th numeric>Сумма</Th>
+                <Th numeric>Остаток</Th>
+              </>
+            }
+          >
+            {operations.map((operation) => (
+              <tr key={operation.id}>
+                <Td>
+                  <span className="text-ink-faint tabular-nums">
+                    {operation.createdAt.toLocaleString("ru-RU", {
+                      day: "numeric",
+                      month: "short",
+                      hour: "2-digit",
+                      minute: "2-digit",
+                    })}
+                  </span>
+                </Td>
+                <Td>
+                  <span className="text-ink-muted">{operation.description}</span>
+                </Td>
+                <td
+                  className={`px-4 py-2.5 text-right font-medium tabular-nums ${
+                    operation.amount >= 0 ? "text-accent" : "text-ink"
+                  }`}
+                >
+                  {operation.amount >= 0 ? "+" : "−"}
+                  {money(Math.abs(operation.amount))}
+                </td>
+                <Td numeric>{money(operation.balanceAfter)}</Td>
+              </tr>
+            ))}
+          </Table>
         )}
 
         {level !== "ok" && (
@@ -247,7 +231,7 @@ export default async function BillingPage() {
             с обрывком акции хуже, чем отложенная рассылка.
           </p>
         )}
-      </section>
+      </Group>
     </main>
   );
 }

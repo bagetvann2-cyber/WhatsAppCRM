@@ -15,6 +15,7 @@ import {
   UsersIcon,
   WalletIcon,
 } from "@/components/icons";
+import { ThemeToggle } from "@/components/ThemeToggle";
 import { initials } from "@/lib/format";
 
 type Item = {
@@ -75,6 +76,12 @@ export function NavRail({
               active ? "bg-accent-soft text-accent" : "text-ink-muted hover:bg-panel hover:text-ink"
             }`}
           >
+            {active && (
+              <span
+                aria-hidden="true"
+                className="absolute inset-x-2 top-0 h-0.5 rounded-full bg-accent md:inset-x-auto md:inset-y-1.5 md:left-0 md:h-auto md:w-0.5"
+              />
+            )}
             <Icon className="size-5" />
             <span className="text-[0.625rem] leading-tight">{label}</span>
           </Link>
@@ -88,6 +95,8 @@ export function NavRail({
         >
           {initials(userLabel, userLabel)}
         </span>
+        <ThemeToggle />
+
         <form action={signOutAction}>
           <button
             type="submit"

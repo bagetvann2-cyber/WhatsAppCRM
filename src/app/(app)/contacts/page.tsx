@@ -2,7 +2,7 @@ import Link from "next/link";
 import { ContactRow } from "@/components/ContactRow";
 import { ImportContacts } from "@/components/ImportContacts";
 import { SearchBox } from "@/components/SearchBox";
-import { BackIcon } from "@/components/icons";
+import { Empty, PageHead } from "@/components/ledger";
 import { prisma } from "@/lib/db";
 import { listContacts, listTags } from "@/lib/contacts";
 import { requireUser } from "@/lib/session";
@@ -41,20 +41,12 @@ export default async function ContactsPage({ searchParams }: PageProps<"/contact
 
   return (
     <main className="mx-auto max-w-3xl px-4 py-8 md:px-6">
-      <div className="mt-4 flex flex-wrap items-start justify-between gap-3">
-        <div>
-          <h1 className="text-2xl font-bold tracking-tight text-ink">Контакты</h1>
-          <p className="mt-1.5 text-sm text-ink-muted">
-            Карточка заводится сама, как только человек напишет. Метки нужны, чтобы рассылка уходила
-            не всем подряд.
-          </p>
-        </div>
-        {canManageTeam(role) && <ImportContacts />}
-      </div>
+      <PageHead title="Контакты" action={canManageTeam(role) ? <ImportContacts /> : undefined}>
+        Карточка заводится сама, как только человек напишет. Метки нужны, чтобы рассылка уходила
+        не всем подряд.
+      </PageHead>
 
-      <div className="mt-6">
-        <SearchBox initialQuery={query} />
-      </div>
+      <SearchBox initialQuery={query} />
 
       <section className="mt-4">
         <div className="flex flex-wrap items-center gap-1.5">
@@ -102,15 +94,15 @@ export default async function ContactsPage({ searchParams }: PageProps<"/contact
 
       <section className="mt-6">
         {contacts.length === 0 ? (
-          <p className="rounded-xl border border-line bg-panel px-4 py-6 text-center text-sm text-ink-muted">
+          <Empty>
             {query || selectedTags.length > 0
               ? "Никого не нашлось. Попробуйте другой запрос или снимите фильтр по метке."
               : "Контактов пока нет. Первый появится, когда клиент напишет на ваш номер."}
-          </p>
+          </Empty>
         ) : (
           <>
             <p className="mb-2 text-xs text-ink-faint">Найдено: {contacts.length}</p>
-            <ul className="divide-y divide-line overflow-hidden rounded-xl border border-line bg-panel">
+            <ul className="divide-y divide-line border-t border-line">
               {contacts.map((contact) => (
                 <ContactRow
                   key={contact.id}

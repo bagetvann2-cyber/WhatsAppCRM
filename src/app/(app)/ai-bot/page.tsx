@@ -1,6 +1,7 @@
 import { redirect } from "next/navigation";
 import { AiBotForm } from "@/components/AiBotForm";
 import { AlertIcon } from "@/components/icons";
+import { Empty, Group, GroupTitle, PageHead } from "@/components/ledger";
 import { getBot, listReplies } from "@/lib/ai-bot-store";
 import { requireUser } from "@/lib/session";
 import { canManageTeam } from "@/lib/team";
@@ -23,12 +24,11 @@ export default async function AiBotPage() {
 
   return (
     <main className="mx-auto max-w-3xl px-4 py-8 md:px-6">
-      <h1 className="text-2xl font-bold tracking-tight text-ink">ИИ-помощник</h1>
-      <p className="mt-1.5 mb-8 max-w-2xl text-sm text-ink-muted">
+      <PageHead title="ИИ-помощник">
         Отвечает клиентам по анкете компании и передаёт диалог человеку, когда вопрос выходит за её
         рамки. Каждый ответ виден в переписке как обычное исходящее — оператор всегда знает, что
         клиенту уже написали.
-      </p>
+      </PageHead>
 
       <AiBotForm
         initial={{
@@ -41,29 +41,30 @@ export default async function AiBotPage() {
         }}
       />
 
-      <section className="mt-12">
-        <div className="mb-4 flex flex-wrap items-baseline justify-between gap-3">
-          <h2 className="text-sm font-semibold text-ink">Что отвечал помощник</h2>
-          {settings.answersUsed > 0 && (
-            <form action={resetUsageAction}>
-              <button
-                type="submit"
-                className="text-xs text-ink-muted transition-colors hover:text-ink"
-              >
-                Обнулить счётчик пакета
-              </button>
-            </form>
-          )}
-        </div>
+      <Group className="mt-12">
+        <GroupTitle
+          aside={
+            settings.answersUsed > 0 ? (
+              <form action={resetUsageAction}>
+                <button
+                  type="submit"
+                  className="text-xs text-ink-muted transition-colors hover:text-ink"
+                >
+                  Обнулить счётчик пакета
+                </button>
+              </form>
+            ) : undefined
+          }
+        >
+          Что отвечал помощник
+        </GroupTitle>
 
         {replies.length === 0 ? (
-          <p className="rounded-xl border border-line bg-panel px-4 py-6 text-center text-sm text-ink-muted">
-            Пока ничего. Здесь будет видно каждый ответ — и что именно спросил клиент.
-          </p>
+          <Empty>Пока ничего. Здесь будет видно каждый ответ — и что именно спросил клиент.</Empty>
         ) : (
-          <ul className="flex flex-col gap-3">
+          <ul>
             {replies.map((reply) => (
-              <li key={reply.id} className="rounded-xl border border-line bg-panel p-4">
+              <li key={reply.id} className="border-b border-line py-3.5 last:border-b-0">
                 <p className="text-sm text-ink-muted">
                   <span className="text-ink-faint">Клиент:</span> {reply.question}
                 </p>
@@ -96,7 +97,7 @@ export default async function AiBotPage() {
             ))}
           </ul>
         )}
-      </section>
+      </Group>
     </main>
   );
 }

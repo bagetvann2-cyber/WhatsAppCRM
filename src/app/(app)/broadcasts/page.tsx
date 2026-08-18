@@ -1,7 +1,7 @@
-import Link from "next/link";
 import { redirect } from "next/navigation";
 import { BroadcastForm } from "@/components/BroadcastForm";
-import { AlertIcon, BackIcon } from "@/components/icons";
+import { AlertIcon } from "@/components/icons";
+import { Empty, Group, GroupTitle, PageHead } from "@/components/ledger";
 import { prisma } from "@/lib/db";
 import { requireUser } from "@/lib/session";
 import { canManageTeam } from "@/lib/team";
@@ -44,14 +44,14 @@ export default async function BroadcastsPage() {
 
   return (
     <main className="mx-auto max-w-3xl px-4 py-8 md:px-6">
-      <h1 className="mt-4 text-2xl font-bold tracking-tight text-ink">Рассылки</h1>
-      <p className="mt-1.5 max-w-2xl text-sm text-ink-muted">
+      <PageHead title="Рассылки">
         Отправка по одобренному шаблону всем контактам или их части. Стоимость считается до
         запуска — деньги списываются за доставленные сообщения.
-      </p>
+      </PageHead>
 
-      <section className="mt-8">
-        <h2 className="mb-4 text-sm font-semibold text-ink">Новая рассылка</h2>
+      <Group className="mt-0">
+        <GroupTitle>Новая рассылка</GroupTitle>
+        <div className="pt-4">
         <BroadcastForm
           contactCount={contactCount}
           tags={tags.map((t) => ({ id: t.id, name: t.name, count: t._count.contacts }))}
@@ -63,24 +63,23 @@ export default async function BroadcastsPage() {
             examples: t.examples,
           }))}
         />
-      </section>
+        </div>
+      </Group>
 
-      <section className="mt-12">
-        <h2 className="mb-4 text-sm font-semibold text-ink">История</h2>
+      <Group className="mt-12">
+        <GroupTitle>История</GroupTitle>
 
         {broadcasts.length === 0 ? (
-          <p className="rounded-xl border border-line bg-panel px-4 py-6 text-center text-sm text-ink-muted">
-            Рассылок ещё не было.
-          </p>
+          <Empty>Рассылок ещё не было.</Empty>
         ) : (
-          <ul className="flex flex-col gap-3">
+          <ul>
             {broadcasts.map((broadcast) => {
               const counts = countByStatus(broadcast.recipients);
               const total = broadcast.recipients.length;
               const reached = counts.SENT + counts.DELIVERED + counts.READ;
 
               return (
-                <li key={broadcast.id} className="rounded-xl border border-line bg-panel p-4">
+                <li key={broadcast.id} className="border-b border-line py-4 last:border-b-0">
                   <div className="flex flex-wrap items-baseline justify-between gap-2">
                     <div className="min-w-0">
                       <p className="truncate font-semibold text-ink">{broadcast.name}</p>
@@ -125,7 +124,7 @@ export default async function BroadcastsPage() {
             })}
           </ul>
         )}
-      </section>
+      </Group>
     </main>
   );
 }

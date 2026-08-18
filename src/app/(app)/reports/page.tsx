@@ -1,6 +1,7 @@
 import Link from "next/link";
 import { redirect } from "next/navigation";
-import { AlertIcon, CheckIcon, LockIcon } from "@/components/icons";
+import { LockIcon } from "@/components/icons";
+import { Empty, Footnote, Group, GroupTitle, PageHead, Row, Table, Td, Th } from "@/components/ledger";
 import { dashboard, workload } from "@/lib/analytics";
 import { formatPhone } from "@/lib/format";
 import { requireUser } from "@/lib/session";
@@ -11,46 +12,6 @@ export const dynamic = "force-dynamic";
 export const metadata = { title: "Отчёты — WhatsApp CRM" };
 
 const PERIODS = [7, 30] as const;
-
-function Stat({
-  label,
-  value,
-  hint,
-  tone = "plain",
-  href,
-}: {
-  label: string;
-  value: string | number;
-  hint?: string;
-  tone?: "plain" | "warn";
-  href?: string;
-}) {
-  const body = (
-    <>
-      <span
-        className={`block text-2xl font-bold tabular-nums ${
-          tone === "warn" ? "text-warn" : "text-ink"
-        }`}
-      >
-        {value}
-      </span>
-      <span className="mt-0.5 block text-sm text-ink-muted">{label}</span>
-      {hint && <span className="mt-1 block text-xs text-ink-faint">{hint}</span>}
-    </>
-  );
-
-  const className = `rounded-xl border border-line bg-panel px-4 py-3.5 ${
-    href ? "transition-colors hover:border-line-strong hover:bg-panel-muted" : ""
-  }`;
-
-  return href ? (
-    <Link href={href} className={`block ${className}`}>
-      {body}
-    </Link>
-  ) : (
-    <div className={className}>{body}</div>
-  );
-}
 
 /** Минуты в читаемый вид: «7 мин», «1 ч 20 мин». */
 function minutesLabel(minutes: number | null): string {
@@ -79,140 +40,119 @@ export default async function ReportsPage({ searchParams }: PageProps<"/reports"
 
   return (
     <main className="mx-auto max-w-3xl px-4 py-8 md:px-6">
-      <h1 className="text-2xl font-bold tracking-tight text-ink">Отчёты</h1>
-      <p className="mt-1.5 mb-8 max-w-2xl text-sm text-ink-muted">
+      <PageHead title="Отчёты">
         Числа, на которые можно среагировать сегодня. Графиков здесь нет намеренно: владельцу
         нужен ответ на вопрос «всё ли в порядке», а не аналитическая панель.
-      </p>
+      </PageHead>
 
-      <section>
-        <h2 className="mb-3 text-sm font-semibold text-ink">Сейчас</h2>
-        <div className="grid gap-3 sm:grid-cols-2 lg:grid-cols-4">
-          <Stat
-            label="ждут ответа"
-            value={stats.waitingReply}
-            hint={stats.waitingReply > 0 ? "последнее слово за клиентом" : "все ответы даны"}
-            tone={stats.waitingReply > 0 ? "warn" : "plain"}
-            href="/"
-          />
-          <Stat
-            label="окон 24 часа открыто"
-            value={stats.openWindows}
-            hint="можно писать свободно, без шаблона"
-          />
-          <Stat label="диалогов всего" value={stats.conversations} />
-          <Stat label="контактов" value={stats.contacts} href="/contacts" />
-        </div>
-      </section>
+      <Group className="mt-0">
+        <GroupTitle>Требует внимания</GroupTitle>
+        <Row
+          label="Ждут ответа"
+          note={stats.waitingReply > 0 ? "последнее слово за клиентом" : "все ответы даны"}
+          value={stats.waitingReply}
+          tone={stats.waitingReply > 0 ? "warn" : "plain"}
+          href="/"
+        />
+        <Row
+          label="Окон 24 часа открыто"
+          note="этим клиентам можно писать свободно, без шаблона"
+          value={stats.openWindows}
+        />
+      </Group>
 
-      <section className="mt-10">
-        <h2 className="mb-3 text-sm font-semibold text-ink">Номер компании</h2>
+      <Group>
+        <GroupTitle>Всего в кабинете</GroupTitle>
+        <Row label="Диалогов" value={stats.conversations} />
+        <Row label="Контактов" value={stats.contacts} href="/contacts" />
 
         {stats.numbers.length === 0 ? (
-          <p className="rounded-xl border border-line bg-panel px-4 py-6 text-center text-sm text-ink-muted">
+          <Empty>
             Номер ещё не подключён. Без него кабинет не принимает и не отправляет сообщения.
-          </p>
+          </Empty>
         ) : (
-          <ul className="flex flex-col gap-2">
-            {stats.numbers.map((number) => (
-              <li
-                key={number.phoneNumberId}
-                className="flex flex-wrap items-center gap-x-4 gap-y-1 rounded-xl border border-line bg-panel px-4 py-3"
-              >
-                <span className="font-semibold text-ink tabular-nums">
-                  {number.displayNumber ? formatPhone(number.displayNumber) : number.phoneNumberId}
-                </span>
-
-                {number.connected ? (
-                  <span className="flex items-center gap-1.5 text-sm text-accent">
-                    <CheckIcon className="size-4" />
-                    подключён к кабинету Meta
-                  </span>
-                ) : (
-                  <span className="flex items-center gap-1.5 text-sm text-warn">
-                    <AlertIcon className="size-4" />
-                    не привязан к WABA — шаблоны и рассылки не работают
-                  </span>
-                )}
-
-                {number.qualityRating && (
-                  <span className="text-xs text-ink-faint">
-                    качество по оценке Meta: {number.qualityRating}
-                  </span>
-                )}
-              </li>
-            ))}
-          </ul>
+          stats.numbers.map((number) => (
+            <Row
+              key={number.phoneNumberId}
+              label={
+                number.displayNumber ? formatPhone(number.displayNumber) : number.phoneNumberId
+              }
+              note={
+                number.connected
+                  ? number.qualityRating
+                    ? `номер подключён, качество по оценке Meta: ${number.qualityRating}`
+                    : "номер подключён к кабинету Meta"
+                  : "не привязан к WABA — шаблоны и рассылки не работают"
+              }
+              value={number.connected ? "готов" : "нужна настройка"}
+              tone={number.connected ? "accent" : "warn"}
+            />
+          ))
         )}
-      </section>
+      </Group>
 
-      <section className="mt-10">
-        <div className="mb-3 flex flex-wrap items-baseline justify-between gap-3">
-          <h2 className="text-sm font-semibold text-ink">Работа команды</h2>
-          <nav aria-label="Период" className="flex gap-1">
-            {PERIODS.map((value) => (
-              <Link
-                key={value}
-                href={value === 7 ? "/reports" : `/reports?days=${value}`}
-                aria-current={value === period ? "page" : undefined}
-                className={`rounded-lg px-2.5 py-1 text-xs font-medium transition-colors ${
-                  value === period
-                    ? "bg-accent-soft text-accent"
-                    : "text-ink-muted hover:bg-panel-muted hover:text-ink"
-                }`}
-              >
-                {value} дней
-              </Link>
-            ))}
-          </nav>
-        </div>
-
-        <div className="mb-4 grid gap-3 sm:grid-cols-3">
-          <Stat label="сообщений от клиентов" value={stats.inbound7d} hint="за 7 дней" />
-          <Stat label="ответов отправлено" value={stats.outbound7d} hint="за 7 дней" />
-          <Stat
-            label="медиана времени ответа"
-            value={minutesLabel(team.medianReplyMinutes)}
-            hint={`обращений: ${team.answered}`}
-          />
-        </div>
-
-        <div className="overflow-x-auto rounded-xl border border-line bg-panel">
-          <table className="w-full text-sm">
-            <caption className="sr-only">Нагрузка операторов за {period} дней</caption>
-            <thead>
-              <tr className="border-b border-line text-left text-xs text-ink-faint">
-                <th scope="col" className="px-4 py-2.5 font-medium">Сотрудник</th>
-                <th scope="col" className="px-4 py-2.5 text-right font-medium">Диалогов ведёт</th>
-                <th scope="col" className="px-4 py-2.5 text-right font-medium">Ответов</th>
-                <th scope="col" className="px-4 py-2.5 text-right font-medium">Отвечает за</th>
-              </tr>
-            </thead>
-            <tbody className="divide-y divide-line">
-              {team.rows.map((row) => (
-                <tr key={row.userId}>
-                  <td className="px-4 py-2.5 text-ink">{row.label}</td>
-                  <td className="px-4 py-2.5 text-right text-ink-muted tabular-nums">
-                    {row.assigned}
-                  </td>
-                  <td className="px-4 py-2.5 text-right text-ink-muted tabular-nums">
-                    {row.replies}
-                  </td>
-                  <td className="px-4 py-2.5 text-right text-ink-muted tabular-nums">
-                    {minutesLabel(row.medianReplyMinutes)}
-                  </td>
-                </tr>
+      <Group>
+        <GroupTitle
+          aside={
+            <nav aria-label="Период" className="flex gap-1">
+              {PERIODS.map((value) => (
+                <Link
+                  key={value}
+                  href={value === 7 ? "/reports" : `/reports?days=${value}`}
+                  aria-current={value === period ? "page" : undefined}
+                  className={`rounded-lg px-2.5 py-1 text-xs font-medium transition-colors ${
+                    value === period
+                      ? "bg-accent-soft text-accent"
+                      : "text-ink-muted hover:bg-panel-muted hover:text-ink"
+                  }`}
+                >
+                  {value} дней
+                </Link>
               ))}
-            </tbody>
-          </table>
-        </div>
+            </nav>
+          }
+        >
+          За {period} дней
+        </GroupTitle>
 
-        <p className="mt-3 flex items-start gap-2 text-xs text-ink-faint">
-          <LockIcon className="mt-0.5 size-3.5 shrink-0" />
+        <Row label="Сообщений от клиентов" value={stats.inbound7d} />
+        <Row label="Ответов отправлено" value={stats.outbound7d} />
+        <Row
+          label="Медиана времени ответа"
+          note={`обращений: ${team.answered}`}
+          value={minutesLabel(team.medianReplyMinutes)}
+        />
+      </Group>
+
+      <Group>
+        <GroupTitle>Кто сколько отвечает</GroupTitle>
+
+        <Table
+          caption={`Нагрузка операторов за ${period} дней`}
+          head={
+            <>
+              <Th>Сотрудник</Th>
+              <Th numeric>Ведёт</Th>
+              <Th numeric>Ответов</Th>
+              <Th numeric>Отвечает за</Th>
+            </>
+          }
+        >
+          {team.rows.map((row) => (
+            <tr key={row.userId}>
+              <Td>{row.label}</Td>
+              <Td numeric>{row.assigned}</Td>
+              <Td numeric>{row.replies}</Td>
+              <Td numeric>{minutesLabel(row.medianReplyMinutes)}</Td>
+            </tr>
+          ))}
+        </Table>
+
+        <Footnote icon={<LockIcon className="mt-0.5 size-3.5 shrink-0" />}>
           Ответы автоответчика, ИИ-помощника и рассылок в таблицу не попадают: робот отвечает
           мгновенно и всегда, и рядом с ним живой оператор выглядел бы медленным.
-        </p>
-      </section>
+        </Footnote>
+      </Group>
     </main>
   );
 }
