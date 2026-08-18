@@ -1,7 +1,10 @@
 import { expect, test } from "vitest";
 import {
   extractVariables,
+  insertVariable,
   renderTemplate,
+  suggestTemplateName,
+  syncVariables,
   toMetaPayload,
   validateTemplate,
   type TemplateDraft,
@@ -39,7 +42,7 @@ test("название только латиницей в нижнем реги�
 
 test("пустой текст не принимается", () => {
   const errors = validateTemplate({ ...valid, bodyText: "   ", examples: [] });
-  expect(errors).toContain("Текст сообщения не может быть пустым.");
+  expect(errors).toContain("Напишите текст сообщения.");
 });
 
 test("слишком длинный текст отклоняется", () => {
@@ -53,17 +56,17 @@ test("переменные должны идти подряд с единицы"
     bodyText: "Здравствуйте, {{1}}! Заказ {{3}} готов.",
     examples: ["Айгерим", "12"],
   });
-  expect(errors.some((e) => e.includes("подряд начиная с {{1}}"))).toBe(true);
+  expect(errors.some((e) => e.includes("Нумерация подстановок"))).toBe(true);
 });
 
 test("сообщение не может начинаться или заканчиваться переменной", () => {
   expect(
     validateTemplate({ ...valid, bodyText: "{{1}}, добрый день!", examples: ["Айгерим"] }),
-  ).toContain("Сообщение не может начинаться с переменной — добавьте текст перед ней.");
+  ).toEqual([expect.stringContaining("начинается с подставленного значения")]);
 
   expect(
     validateTemplate({ ...valid, bodyText: "Ваш код: {{1}}", examples: ["1234"] }),
-  ).toContain("Сообщение не может заканчиваться переменной — добавьте текст после неё.");
+  ).toEqual([expect.stringContaining("заканчивается подставленным значением")]);
 });
 
 test("две переменные подряд не принимаются", () => {
@@ -72,16 +75,16 @@ test("две переменные подряд не принимаются", () 
     bodyText: "Клиент {{1}} {{2}} записан на приём.",
     examples: ["Айгерим", "Сатыбалдиева"],
   });
-  expect(errors).toContain("Две переменные подряд Meta не принимает — разделите их текстом.");
+  expect(errors).toEqual([expect.stringContaining("Два подставленных значения подряд")]);
 });
 
 test("переменные в заголовке и подписи запрещены", () => {
-  expect(validateTemplate({ ...valid, headerText: "Заказ {{1}}" })).toContain(
-    "В заголовке переменные не поддерживаются — оставьте его постоянным.",
-  );
-  expect(validateTemplate({ ...valid, footerText: "Ответ на {{1}}" })).toContain(
-    "В подписи переменные не поддерживаются.",
-  );
+  expect(validateTemplate({ ...valid, headerText: "Заказ {{1}}" })).toEqual([
+    expect.stringContaining("В шапке подстановки не работают"),
+  ]);
+  expect(validateTemplate({ ...valid, footerText: "Ответ на {{1}}" })).toEqual([
+    expect.stringContaining("В подписи подстановки не работают"),
+  ]);
 });
 
 test("без примеров значений шаблон не уходит на модерацию", () => {
@@ -131,5 +134,82 @@ test("шаблон без переменных уходит без блока п
 
   expect(payload.components).toEqual([
     { type: "BODY", text: "Мы получили вашу заявку и скоро свяжемся." },
+  ]);
+});
+
+test("служебное имя собирается из текста шаблона", () => {
+  expect(suggestTemplateName("Здравствуйте! Вы записаны на приём")).toBe(
+    "zdravstvuyte_vy_zapisany_na_priem",
+  );
+  // Переменные в имя не попадают: клиент их не писал, а Meta примет только буквы.
+  expect(suggestTemplateName("Здравствуйте, {{1}}! Заказ {{2}} готов")).toBe(
+    "zdravstvuyte_zakaz_gotov",
+  );
+  expect(suggestTemplateName("Сәлеметсіз бе! Тапсырыс дайын")).toBe("salemetsiz_be_tapsyrys_dayyn");
+  expect(suggestTemplateName("Sale 30% off!")).toBe("sale_30_off");
+});
+
+test("служебное имя не бывает пустым и не тянет хвост", () => {
+  expect(suggestTemplateName("")).toBe("shablon");
+  expect(suggestTemplateName("!!! ???")).toBe("shablon");
+  const long = suggestTemplateName("а".repeat(300));
+  expect(long.length).toBeLessThanOrEqual(64);
+  expect(long.endsWith("_")).toBe(false);
+});
+
+test("вставка переменной нумерует её по месту в тексте", () => {
+  // Курсор в начале: новая подстановка становится первой, старая уезжает на вторую.
+  // Пробел перед ней дописывается сам — иначе выйдет «Ждём вас.Айгерим».
+  const result = insertVariable(
+    { text: "Здравствуйте! Вы записаны на {{1}}.", slots: [{ label: "Дата и время", example: "четверг, 16:30" }] },
+    { label: "Имя клиента", example: "Айгерим" },
+    13,
+  );
+
+  expect(result.text).toBe("Здравствуйте! {{1}} Вы записаны на {{2}}.");
+  expect(result.slots).toEqual([
+    { label: "Имя клиента", example: "Айгерим" },
+    { label: "Дата и время", example: "четверг, 16:30" },
+  ]);
+  expect(result.caret).toBe(13 + " {{1}}".length);
+});
+
+test("правка текста руками пересобирает нумерацию и подписи", () => {
+  const before = {
+    text: "Здравствуйте, {{1}}! Заказ {{2}} готов, сумма {{3}}.",
+    slots: [
+      { label: "Имя клиента", example: "Айгерим" },
+      { label: "Номер заказа", example: "1024" },
+      { label: "Сумма", example: "12 000 ₸" },
+    ],
+  };
+
+  // Клиент удалил середину — оставшиеся переменные обязаны стать {{1}} и {{2}},
+  // иначе Meta отклонит шаблон за пропуск номера.
+  const after = syncVariables(before, "Здравствуйте, {{1}}! Сумма {{3}}.");
+
+  expect(after.text).toBe("Здравствуйте, {{1}}! Сумма {{2}}.");
+  expect(after.slots).toEqual([
+    { label: "Имя клиента", example: "Айгерим" },
+    { label: "Сумма", example: "12 000 ₸" },
+  ]);
+});
+
+test("перестановка переменных местами тянет подписи за собой", () => {
+  const after = syncVariables(
+    {
+      text: "{{1}} и {{2}}",
+      slots: [
+        { label: "Имя клиента", example: "Айгерим" },
+        { label: "Сумма", example: "12 000 ₸" },
+      ],
+    },
+    "Сначала {{2}}, потом {{1}}.",
+  );
+
+  expect(after.text).toBe("Сначала {{1}}, потом {{2}}.");
+  expect(after.slots).toEqual([
+    { label: "Сумма", example: "12 000 ₸" },
+    { label: "Имя клиента", example: "Айгерим" },
   ]);
 });
