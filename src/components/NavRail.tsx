@@ -28,7 +28,7 @@ type Item = {
 };
 
 const ITEMS: Item[] = [
-  { href: "/", label: "Диалоги", Icon: ChatIcon },
+  { href: "/inbox", label: "Диалоги", Icon: ChatIcon },
   { href: "/contacts", label: "Контакты", Icon: UsersIcon },
   { href: "/orders", label: "Заказы", Icon: OrderIcon },
   { href: "/broadcasts", label: "Рассылки", Icon: MegaphoneIcon, manageOnly: true },
@@ -54,7 +54,9 @@ export function NavRail({
   const visible = ITEMS.filter((item) => !item.manageOnly || canManage);
 
   function isActive(href: string): boolean {
-    return href === "/" ? pathname === "/" || pathname.startsWith("/chat") : pathname.startsWith(href);
+    return href === "/inbox"
+      ? pathname === "/inbox" || pathname.startsWith("/chat")
+      : pathname.startsWith(href);
   }
 
   return (

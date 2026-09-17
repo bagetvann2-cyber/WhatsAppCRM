@@ -8,7 +8,7 @@ import { requireUser } from "@/lib/session";
 
 export const dynamic = "force-dynamic";
 
-export default async function InboxPage({ searchParams }: PageProps<"/">) {
+export default async function InboxPage({ searchParams }: PageProps<"/inbox">) {
   const { user, organization } = await requireUser();
   const { q, scope } = await searchParams;
   const query = typeof q === "string" ? q : "";

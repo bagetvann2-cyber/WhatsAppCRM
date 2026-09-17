@@ -27,7 +27,7 @@ function minutesLabel(minutes: number | null): string {
 export default async function ReportsPage({ searchParams }: PageProps<"/reports">) {
   const { organization, role } = await requireUser();
   if (!canManageTeam(role)) {
-    redirect("/");
+    redirect("/inbox");
   }
 
   const { days } = await searchParams;
@@ -52,7 +52,7 @@ export default async function ReportsPage({ searchParams }: PageProps<"/reports"
           note={stats.waitingReply > 0 ? "последнее слово за клиентом" : "все ответы даны"}
           value={stats.waitingReply}
           tone={stats.waitingReply > 0 ? "warn" : "plain"}
-          href="/"
+          href="/inbox"
         />
         <Row
           label="Окон 24 часа открыто"

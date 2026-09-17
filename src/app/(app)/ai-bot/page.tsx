@@ -14,7 +14,7 @@ export const metadata = { title: "ИИ-помощник — WhatsApp CRM" };
 export default async function AiBotPage() {
   const { organization, role } = await requireUser();
   if (!canManageTeam(role)) {
-    redirect("/");
+    redirect("/inbox");
   }
 
   const [settings, replies] = await Promise.all([

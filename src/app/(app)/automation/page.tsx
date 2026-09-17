@@ -12,7 +12,7 @@ export const metadata = { title: "Автоответы — WhatsApp CRM" };
 export default async function AutomationPage() {
   const { organization, role } = await requireUser();
   if (!canManageTeam(role)) {
-    redirect("/");
+    redirect("/inbox");
   }
 
   const settings = await getAutomation(organization.id);

@@ -34,7 +34,7 @@ const INVOICE_LABEL: Record<string, string> = {
 export default async function BillingPage() {
   const { organization, role } = await requireUser();
   if (!canManageTeam(role)) {
-    redirect("/");
+    redirect("/inbox");
   }
 
   const [subscription, plans, members, invoices, operations, fresh] = await Promise.all([

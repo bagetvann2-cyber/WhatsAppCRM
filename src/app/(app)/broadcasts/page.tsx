@@ -29,7 +29,7 @@ const STATUS_STYLE: Record<string, string> = {
 export default async function BroadcastsPage() {
   const { organization, role } = await requireUser();
   if (!canManageTeam(role)) {
-    redirect("/");
+    redirect("/inbox");
   }
 
   const [templates, contactCount, broadcasts, tags] = await Promise.all([

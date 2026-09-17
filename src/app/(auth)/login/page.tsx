@@ -9,7 +9,7 @@ export const metadata = { title: "Вход — WhatsApp CRM" };
 
 export default async function LoginPage() {
   if (await currentUser()) {
-    redirect("/");
+    redirect("/inbox");
   }
 
   return (

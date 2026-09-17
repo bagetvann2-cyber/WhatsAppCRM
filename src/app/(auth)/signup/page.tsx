@@ -9,7 +9,7 @@ export const metadata = { title: "Создать кабинет — WhatsApp CRM
 
 export default async function SignupPage() {
   if (await currentUser()) {
-    redirect("/");
+    redirect("/inbox");
   }
 
   return (

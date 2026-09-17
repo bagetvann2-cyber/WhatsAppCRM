@@ -34,7 +34,7 @@ export async function signUpAction(_prev: FormState, data: FormData): Promise<Fo
   }
 
   await setSessionCookie(await createSession(userId));
-  redirect("/");
+  redirect("/inbox");
 }
 
 export async function signInAction(_prev: FormState, data: FormData): Promise<FormState> {
@@ -53,7 +53,7 @@ export async function signInAction(_prev: FormState, data: FormData): Promise<Fo
   }
 
   await setSessionCookie(await createSession(user.id));
-  redirect("/");
+  redirect("/inbox");
 }
 
 export async function signOutAction(): Promise<void> {
