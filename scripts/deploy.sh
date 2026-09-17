@@ -21,8 +21,9 @@ echo "==> Сборка"
 npm run build
 
 echo "==> Чистка сборки от того, что серверу не нужно"
+# src и scripts остаются: их запускает через tsx воркер очереди (см. ниже).
 cd .next/standalone
-rm -rf docs tests tools src scripts storage \
+rm -rf docs tests tools storage \
        eslint.config.mjs postcss.config.mjs vitest.config.mts \
        tsconfig.tsbuildinfo skills-lock.json AGENTS.md CLAUDE.md README.md
 cd ../..
@@ -53,5 +54,12 @@ done
 
 echo "==> Перезапуск"
 ssh "$SERVER" "chown -R root:root $REMOTE_DIR && pm2 restart $APP --update-env >/dev/null && sleep 4 && curl -s -o /dev/null -w 'ответ приложения: %{http_code}\n' http://127.0.0.1:4100/login"
+
+# Воркер очереди (scripts/worker.ts, npm run worker) запускается через tsx,
+# который не входит в standalone-сборку Next — tsx/dotenv/dotenv-cli на сервере
+# поставлены руками один раз (devDependencies, кросс-собраны под linux-x64,
+# см. историю сессии), обычная сборка их не трогает и не обновляет.
+echo "==> Перезапуск воркера"
+ssh "$SERVER" "cd $REMOTE_DIR && (pm2 restart crm-worker --update-env >/dev/null || pm2 start npm --name crm-worker --cwd $REMOTE_DIR -- run worker)"
 
 echo "==> Готово: https://crm.neiroflow.kz"
