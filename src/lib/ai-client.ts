@@ -1,5 +1,6 @@
 import Anthropic from "@anthropic-ai/sdk";
 import { buildSystemPrompt } from "@/lib/ai-bot";
+import type { OrderFieldDef } from "@/lib/orders";
 
 /** Клиент создаётся лениво: без ключа приложение должно запускаться и работать. */
 let client: Anthropic | null = null;
@@ -33,12 +34,44 @@ const HANDOFF_TOOL = {
   },
 };
 
+/** Инструмент собирается на каждый вызов: у каждой организации своя схема полей. */
+function buildOrderTool(fields: OrderFieldDef[]) {
+  const properties: Record<string, { type: string; description: string; enum?: string[] }> = {};
+
+  for (const field of fields) {
+    if (field.type === "NUMBER") {
+      properties[field.id] = { type: "number", description: field.label };
+    } else if (field.type === "DATE") {
+      properties[field.id] = { type: "string", description: `${field.label} (формат ГГГГ-ММ-ДД)` };
+    } else if (field.type === "SELECT" && field.options) {
+      properties[field.id] = { type: "string", description: field.label, enum: field.options };
+    } else {
+      properties[field.id] = { type: "string", description: field.label };
+    }
+  }
+
+  return {
+    name: "save_order",
+    description:
+      "Сохранить или дополнить заказ клиента известными на данный момент полями. Вызывайте " +
+      "каждый раз, когда в переписке появляются новые сведения о заказе — не дожидайтесь, " +
+      "пока клиент назовёт всё сразу, и не переспрашивайте то, что он уже сказал. Передавайте " +
+      "только те поля, которые узнали или уточнили в этом сообщении.",
+    input_schema: {
+      type: "object" as const,
+      properties,
+    },
+  };
+}
+
 export type ChatTurn = { role: "user" | "assistant"; text: string };
 
 export type BotAnswer = {
   answer: string | null;
   handoff: boolean;
   handoffReason: string | null;
+  /** Поля заказа, которые бот узнал в этом ответе (частично, накопительно). */
+  orderFields: Record<string, unknown> | null;
   inputTokens: number;
   cachedTokens: number;
   outputTokens: number;
@@ -56,11 +89,14 @@ export async function askBot(input: {
   companyProfile: string;
   rules: string | null;
   history: ChatTurn[];
+  orderFields?: OrderFieldDef[];
 }): Promise<BotAnswer> {
   const system = buildSystemPrompt({
     companyProfile: input.companyProfile,
     rules: input.rules,
   });
+
+  const tools = [HANDOFF_TOOL, ...(input.orderFields?.length ? [buildOrderTool(input.orderFields)] : [])];
 
   const response = await anthropic().messages.create({
     model: input.model,
@@ -76,7 +112,7 @@ export async function askBot(input: {
         cache_control: { type: "ephemeral" },
       },
     ],
-    tools: [HANDOFF_TOOL],
+    tools,
     messages: input.history.map((turn) => ({
       role: turn.role,
       content: turn.text,
@@ -86,6 +122,7 @@ export async function askBot(input: {
   let answer: string | null = null;
   let handoff = false;
   let handoffReason: string | null = null;
+  let orderFields: Record<string, unknown> | null = null;
 
   for (const block of response.content) {
     if (block.type === "text" && block.text.trim()) {
@@ -96,12 +133,16 @@ export async function askBot(input: {
       const reason = (block.input as { reason?: string })?.reason;
       handoffReason = typeof reason === "string" ? reason : null;
     }
+    if (block.type === "tool_use" && block.name === "save_order") {
+      orderFields = { ...(orderFields ?? {}), ...(block.input as Record<string, unknown>) };
+    }
   }
 
   return {
     answer,
     handoff,
     handoffReason,
+    orderFields,
     inputTokens: response.usage.input_tokens,
     cachedTokens: response.usage.cache_read_input_tokens ?? 0,
     outputTokens: response.usage.output_tokens,

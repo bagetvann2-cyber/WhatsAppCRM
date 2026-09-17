@@ -9,6 +9,7 @@ import {
 } from "@/lib/ai-bot";
 import { getBot, runAiBot, saveBot } from "@/lib/ai-bot-store";
 import { saveIncomingMessage } from "@/lib/ingest";
+import { getOrderFields, getOrders, saveOrderFields } from "@/lib/orders-store";
 import { createTestOrg, dropTestOrg } from "./helpers";
 
 const phoneNumberId = "PNID-BOT";
@@ -263,4 +264,56 @@ test("расход токенов пишется в журнал для отчё
   const log = await prisma.aiReply.findFirstOrThrow({ where: { organizationId } });
   expect(log.cachedTokens).toBe(2000);
   expect(log.outputTokens).toBe(40);
+});
+
+test("поля заказа, которые вернул бот, передаются askBot и попадают в черновик заказа", async () => {
+  await saveBot(organizationId, settings);
+  await saveOrderFields(organizationId, [
+    { label: "Товар", type: "TEXT", options: null, required: true },
+  ]);
+  const [field] = await getOrderFields(organizationId);
+
+  askMock.mockResolvedValue({
+    answer: "Записал: кроссовки",
+    handoff: false,
+    handoffReason: null,
+    orderFields: { [field.id]: "Кроссовки" },
+    inputTokens: 100,
+    cachedTokens: 0,
+    outputTokens: 10,
+  });
+
+  const { conversationId } = await incoming("Хочу кроссовки", "wamid.IN.1");
+  await runAiBot({ organizationId, conversationId, to: waId });
+
+  // askBot должен получить схему полей организации, чтобы построить save_order.
+  expect(askMock.mock.calls[0][0].orderFields).toEqual([
+    expect.objectContaining({ id: field.id, label: "Товар" }),
+  ]);
+
+  const orders = await getOrders(organizationId);
+  expect(orders).toHaveLength(1);
+  expect(orders[0].status).toBe("DRAFT");
+  expect(orders[0].fields).toEqual({ [field.id]: "Кроссовки" });
+});
+
+test("без orderFields в ответе бота заказ не создаётся", async () => {
+  await saveBot(organizationId, settings);
+  await saveOrderFields(organizationId, [
+    { label: "Товар", type: "TEXT", options: null, required: true },
+  ]);
+  askMock.mockResolvedValue({
+    answer: "Здравствуйте, чем помочь?",
+    handoff: false,
+    handoffReason: null,
+    orderFields: null,
+    inputTokens: 50,
+    cachedTokens: 0,
+    outputTokens: 5,
+  });
+
+  const { conversationId } = await incoming("Здравствуйте", "wamid.IN.1");
+  await runAiBot({ organizationId, conversationId, to: waId });
+
+  expect(await getOrders(organizationId)).toHaveLength(0);
 });

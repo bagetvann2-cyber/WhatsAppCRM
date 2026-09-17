@@ -92,6 +92,20 @@ enum InvoiceStatus {
   CANCELLED
 }
 
+enum OrderFieldType {
+  TEXT
+  NUMBER
+  DATE
+  SELECT
+}
+
+/// DRAFT собирает бот по ходу диалога, дальше решает оператор.
+enum OrderStatus {
+  DRAFT
+  CONFIRMED
+  CANCELLED
+}
+
 /// Тариф. Цены, лимиты и состав задаются данными: Meta меняет правила чаще,
 /// чем мы готовы выкатывать релиз ради новой цифры.
 model Plan {
@@ -193,6 +207,8 @@ model Organization {
   automation          Automation?
   aiBot               AiBot?
   aiReplies           AiReply[]
+  orderFields         OrderField[]
+  orders              Order[]
 }
 
 /// Настройки ИИ-помощника. Отвечает клиентам по анкете компании,
@@ -239,6 +255,47 @@ model AiReply {
 
   @@index([organizationId, createdAt])
   @@index([conversationId])
+}
+
+/// Поле заказа, которое бизнес настраивает под свою нишу: риелтору нужен
+/// адрес и бюджет, кафе — блюдо и время доставки. `id` служит и ключом
+/// в JSON заказа, и именем свойства в tool-схеме бота (src/lib/ai-client.ts) —
+/// отдельный человекочитаемый ключ не заводим, у поля и так есть `label`.
+model OrderField {
+  id             String         @id @default(cuid())
+  organizationId String
+  organization   Organization   @relation(fields: [organizationId], references: [id], onDelete: Cascade)
+  label          String
+  type           OrderFieldType @default(TEXT)
+  /// Варианты для типа SELECT, для остальных типов null.
+  options        Json?
+  required       Boolean        @default(false)
+  /// Порядок в настройках, в tool-схеме бота и в колонках выгрузки.
+  position       Int            @default(0)
+  createdAt      DateTime       @default(now())
+
+  @@index([organizationId, position])
+}
+
+/// Заказ, который бот собрал из переписки. Один активный (DRAFT) заказ на
+/// диалог — оператор подтверждает или отменяет его; следующий заказ в этом
+/// же диалоге появляется только после того, как текущий закрыт.
+model Order {
+  id             String       @id @default(cuid())
+  organizationId String
+  organization   Organization @relation(fields: [organizationId], references: [id], onDelete: Cascade)
+  conversationId String
+  conversation   Conversation @relation(fields: [conversationId], references: [id], onDelete: Cascade)
+  status         OrderStatus  @default(DRAFT)
+  /// {OrderField.id: значение} — состав ключей определяется текущей схемой
+  /// полей организации на момент записи.
+  fields         Json         @default("{}")
+  createdAt      DateTime     @default(now())
+  updatedAt      DateTime     @updatedAt
+  confirmedAt    DateTime?
+
+  @@index([organizationId, status, createdAt])
+  @@index([conversationId, status])
 }
 
 /// Настройки автоответов. Одна запись на компанию.
@@ -487,6 +544,7 @@ model Conversation {
   assignee        User?        @relation(fields: [assigneeId], references: [id], onDelete: SetNull)
   assignedAt      DateTime?
   messages        Message[]
+  orders          Order[]
 
   @@unique([contactId, channelId])
   @@index([organizationId, lastMessageAt])

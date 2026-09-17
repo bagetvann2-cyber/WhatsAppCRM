@@ -8,6 +8,7 @@ import {
   ChatIcon,
   LogoutIcon,
   MegaphoneIcon,
+  OrderIcon,
   ReportIcon,
   SparkIcon,
   TeamIcon,
@@ -28,6 +29,7 @@ type Item = {
 const ITEMS: Item[] = [
   { href: "/", label: "Диалоги", Icon: ChatIcon },
   { href: "/contacts", label: "Контакты", Icon: UsersIcon },
+  { href: "/orders", label: "Заказы", Icon: OrderIcon },
   { href: "/broadcasts", label: "Рассылки", Icon: MegaphoneIcon, manageOnly: true },
   { href: "/templates", label: "Шаблоны", Icon: TemplateIcon, manageOnly: true },
   { href: "/automation", label: "Автоответы", Icon: BoltIcon, manageOnly: true },

@@ -3,6 +3,7 @@ import { askBot, type ChatTurn } from "@/lib/ai-client";
 import { shouldBotReply, type BotSettings } from "@/lib/ai-bot";
 import { isReplyWindowOpen } from "@/lib/conversation-window";
 import { sendChannelText } from "@/lib/channels";
+import { getOrderFields, upsertDraftOrderFields } from "@/lib/orders-store";
 
 /** Сколько последних сообщений диалога уходит боту как контекст. */
 const HISTORY_DEPTH = 12;
@@ -118,6 +119,7 @@ export async function runAiBot(input: {
   }
 
   const question = [...history].reverse().find((turn) => turn.role === "user")?.text ?? "";
+  const orderFields = await getOrderFields(input.organizationId);
 
   try {
     const result = await askBot({
@@ -125,6 +127,7 @@ export async function runAiBot(input: {
       companyProfile: settings.companyProfile,
       rules: settings.rules,
       history,
+      orderFields,
     });
 
     // Ответ засчитывается в пакет независимо от исхода: запрос оплачен в любом случае.
@@ -146,6 +149,17 @@ export async function runAiBot(input: {
         outputTokens: result.outputTokens,
       },
     });
+
+    if (result.orderFields) {
+      // Черновик заказа — побочная запись, её сбой не должен портить уже
+      // готовый ответ клиенту.
+      await upsertDraftOrderFields({
+        organizationId: input.organizationId,
+        conversationId: input.conversationId,
+        fields: result.orderFields,
+        fieldDefs: orderFields,
+      }).catch(() => {});
+    }
 
     if (result.handoff) {
       await prisma.conversation.update({
