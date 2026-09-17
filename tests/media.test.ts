@@ -172,7 +172,18 @@ async function incomingPhoto(wamid = "MEDIA.IN.1") {
     }),
   );
 
-  const result = await saveIncomingMessage(messages[0]);
+  const message = messages[0];
+  const result = await saveIncomingMessage({
+    channelType: "WHATSAPP",
+    channelExternalId: message.phoneNumberId,
+    externalMessageId: message.wamid,
+    from: message.from,
+    profileName: message.profileName,
+    type: message.type,
+    text: message.text,
+    media: message.media,
+    timestamp: message.timestamp,
+  });
   if (!result.stored) {
     throw new Error("сообщение должно сохраниться");
   }

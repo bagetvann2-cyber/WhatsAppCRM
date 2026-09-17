@@ -122,10 +122,11 @@ test("пробный период начинается с первого соо�
   expect(isSubscriptionActive(before)).toBe(true);
 
   await saveIncomingMessage({
-    wamid: `${phoneNumberId}.IN.1`,
+    channelType: "WHATSAPP",
+    externalMessageId: `${phoneNumberId}.IN.1`,
     from: "77010001001",
     profileName: "Айгерим",
-    phoneNumberId,
+    channelExternalId: phoneNumberId,
     type: "text",
     text: "Здравствуйте",
     media: null,

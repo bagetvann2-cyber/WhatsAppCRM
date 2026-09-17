@@ -45,7 +45,17 @@ export async function POST(request: Request): Promise<Response> {
   }
 
   for (const message of messages) {
-    const result = await saveIncomingMessage(message);
+    const result = await saveIncomingMessage({
+      channelType: "WHATSAPP",
+      channelExternalId: message.phoneNumberId,
+      externalMessageId: message.wamid,
+      from: message.from,
+      profileName: message.profileName,
+      type: message.type,
+      text: message.text,
+      media: message.media,
+      timestamp: message.timestamp,
+    });
     if (!result.stored || !result.created) {
       continue;
     }
@@ -67,7 +77,11 @@ export async function POST(request: Request): Promise<Response> {
   }
 
   for (const status of statuses) {
-    await applyStatusUpdate(status);
+    await applyStatusUpdate({
+      externalMessageId: status.wamid,
+      status: status.status,
+      timestamp: status.timestamp,
+    });
   }
 
   if (statuses.length > 0) {

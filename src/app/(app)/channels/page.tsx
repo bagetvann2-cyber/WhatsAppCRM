@@ -1,6 +1,7 @@
 import { redirect } from "next/navigation";
 import { AlertIcon, CheckIcon } from "@/components/icons";
 import { ConnectWhatsAppButton } from "@/components/ConnectWhatsAppButton";
+import { ConnectTelegramBot } from "@/components/ConnectTelegramBot";
 import { Empty, Group, GroupTitle, PageHead, Row } from "@/components/ledger";
 import { getChannelsWithStatus } from "@/lib/channels-store";
 import { env } from "@/lib/env";
@@ -28,7 +29,7 @@ const STATUS_LABEL: Record<string, string> = {
 export default async function ChannelsPage() {
   const { organization, role } = await requireUser();
   if (!canManageTeam(role)) {
-    redirect("/");
+    redirect("/inbox");
   }
 
   const channels = await getChannelsWithStatus(organization.id);
@@ -84,6 +85,24 @@ export default async function ChannelsPage() {
             </Row>
           ))
         )}
+      </Group>
+
+      <Group>
+        <GroupTitle>Telegram-бот</GroupTitle>
+        <p className="border-b border-line py-3.5 text-sm text-ink-muted">
+          Создайте бота у{" "}
+          <a
+            href="https://t.me/BotFather"
+            target="_blank"
+            rel="noreferrer"
+            className="text-accent underline"
+          >
+            @BotFather
+          </a>{" "}
+          и вставьте выданный им токен сюда — окна 24 часа у своего бота нет, отвечать можно в
+          любой момент.
+        </p>
+        <ConnectTelegramBot />
       </Group>
 
       <Group>

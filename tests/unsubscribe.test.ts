@@ -97,10 +97,11 @@ test("отпиской считается сообщение целиком, а 
 
 test("сообщение «стоп» отписывает контакт", async () => {
   const result = await saveIncomingMessage({
-    wamid: `${phoneNumberId}.IN.1`,
+    channelType: "WHATSAPP",
+    externalMessageId: `${phoneNumberId}.IN.1`,
     from: "77010000013",
     profileName: "Дана",
-    phoneNumberId,
+    channelExternalId: phoneNumberId,
     type: "text",
     text: "Стоп",
     media: null,
@@ -128,10 +129,11 @@ test("сообщение «стоп» отписывает контакт", asyn
 
 test("обычное сообщение отпиской не считается", async () => {
   const result = await saveIncomingMessage({
-    wamid: `${phoneNumberId}.IN.2`,
+    channelType: "WHATSAPP",
+    externalMessageId: `${phoneNumberId}.IN.2`,
     from: "77010000011",
     profileName: "Айгерим",
-    phoneNumberId,
+    channelExternalId: phoneNumberId,
     type: "text",
     text: "Сколько стоит чистка?",
     media: null,

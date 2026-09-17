@@ -119,12 +119,13 @@ test("выключенные автоответы молчат", () => {
 
 async function incoming(text: string, wamid: string) {
   const result = await saveIncomingMessage({
-    // wamid уникален глобально, как у Meta: без префикса файла тесты в
-    // параллельном прогоне «съедают» сообщения друг друга дедупликацией.
-    wamid: `${phoneNumberId}.${wamid}`,
+    channelType: "WHATSAPP",
+    // externalMessageId уникален глобально, как у Meta: без префикса файла
+    // тесты в параллельном прогоне «съедают» сообщения друг друга дедупликацией.
+    externalMessageId: `${phoneNumberId}.${wamid}`,
     from: waId,
     profileName: "Асель",
-    phoneNumberId,
+    channelExternalId: phoneNumberId,
     type: "text",
     text,
     media: null,

@@ -39,10 +39,11 @@ afterAll(async () => {
 
 async function incoming(text: string, wamid: string) {
   const result = await saveIncomingMessage({
-    wamid: `${phoneNumberId}.${wamid}`,
+    channelType: "WHATSAPP",
+    externalMessageId: `${phoneNumberId}.${wamid}`,
     from: waId,
     profileName: "Клиент",
-    phoneNumberId,
+    channelExternalId: phoneNumberId,
     type: "text",
     text,
     media: null,

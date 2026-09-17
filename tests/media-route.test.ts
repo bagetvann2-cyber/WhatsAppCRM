@@ -52,10 +52,11 @@ function request(id: string, query = ""): [Request, { params: Promise<{ id: stri
 
 async function photoMessage() {
   const result = await saveIncomingMessage({
-    wamid: `${phoneNumberId}.IN.1`,
+    channelType: "WHATSAPP",
+    externalMessageId: `${phoneNumberId}.IN.1`,
     from: waId,
     profileName: "Дана",
-    phoneNumberId,
+    channelExternalId: phoneNumberId,
     type: "image",
     text: "Снимок",
     media: {

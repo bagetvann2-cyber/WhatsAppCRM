@@ -32,3 +32,29 @@ export async function dropTestOrg(phoneNumberId: string) {
     await prisma.organization.deleteMany({ where: { id: channel.organizationId } });
   }
 }
+
+/** То же самое, но с каналом Telegram (свой бот) — для тестов вебхука и ingest. */
+export async function createTestTelegramOrg(botId: string, name = `Тест ${botId}`) {
+  const organization = await prisma.organization.create({ data: { name } });
+  const channel = await prisma.channel.create({
+    data: {
+      organizationId: organization.id,
+      type: "TELEGRAM",
+      connectionMethod: "TG_OWN_BOT",
+      name: "Telegram-бот",
+      status: "ACTIVE",
+      externalId: botId,
+      externalUsername: "@test_bot",
+    },
+  });
+  return { ...organization, channelId: channel.id };
+}
+
+export async function dropTestTelegramOrg(botId: string) {
+  const channel = await prisma.channel.findUnique({
+    where: { type_externalId: { type: "TELEGRAM", externalId: botId } },
+  });
+  if (channel) {
+    await prisma.organization.deleteMany({ where: { id: channel.organizationId } });
+  }
+}

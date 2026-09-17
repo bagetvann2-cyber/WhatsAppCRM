@@ -4,9 +4,8 @@ import { messageEvents } from "@/lib/events";
 import { mediaKind, sizeLabel } from "@/lib/media";
 import { storeOutgoingMedia } from "@/lib/media-store";
 import { currentUser } from "@/lib/session";
-import { sendTextMessage } from "@/lib/whatsapp/client";
 import { sendMediaMessage, uploadMedia } from "@/lib/whatsapp/media";
-import { whatsAppCredentials } from "@/lib/channels/whatsapp";
+import { sendChannelText } from "@/lib/channels";
 import { isReplyWindowOpen } from "@/lib/conversation-window";
 
 type Outgoing =
@@ -96,19 +95,29 @@ export async function POST(request: Request): Promise<Response> {
     );
   }
 
+  const { message } = parsed;
+
+  // Файл у Telegram пока не уходит: uploadMedia/sendMediaMessage говорят
+  // только с WhatsApp — портировать на Telegram, когда понадобится.
+  if (message.kind === "media" && conversation.channel.type !== "WHATSAPP") {
+    return Response.json({ error: "Отправка файлов пока доступна только для WhatsApp" }, { status: 422 });
+  }
+
   try {
     const now = new Date();
-    const { message } = parsed;
-    const creds = whatsAppCredentials(conversation.channel);
-    let sentWamid: string;
+    let sentExternalMessageId: string;
 
     if (message.kind === "text") {
-      const { wamid } = await sendTextMessage(creds, conversation.contact.externalUserId, message.text);
-      sentWamid = wamid;
+      const { externalMessageId } = await sendChannelText({
+        channel: conversation.channel,
+        to: conversation.contact.externalUserId,
+        text: message.text,
+      });
+      sentExternalMessageId = externalMessageId;
 
       await prisma.message.create({
         data: {
-          externalMessageId: wamid,
+          externalMessageId,
           channelId: conversation.channel.id,
           conversationId: conversation.id,
           direction: "OUTBOUND",
@@ -129,7 +138,7 @@ export async function POST(request: Request): Promise<Response> {
         caption: message.caption,
         filename: message.file.filename,
       });
-      sentWamid = wamid;
+      sentExternalMessageId = wamid;
 
       const stored = await prisma.message.create({
         data: {
@@ -165,7 +174,7 @@ export async function POST(request: Request): Promise<Response> {
 
     messageEvents.emit("update", { conversationId: conversation.id });
 
-    return Response.json({ wamid: sentWamid }, { status: 200 });
+    return Response.json({ externalMessageId: sentExternalMessageId }, { status: 200 });
   } catch (error) {
     const message = error instanceof Error ? error.message : "Не удалось отправить сообщение";
     return Response.json({ error: message }, { status: 502 });
