@@ -13,6 +13,10 @@ export const env = {
   verifyToken: () => required("WHATSAPP_VERIFY_TOKEN"),
   token: () => required("WHATSAPP_TOKEN"),
   phoneNumberId: () => required("WHATSAPP_PHONE_NUMBER_ID"),
+  /** Meta App для Embedded Signup — идёт в браузер, поэтому с префиксом NEXT_PUBLIC_. */
+  appId: () => required("NEXT_PUBLIC_WHATSAPP_APP_ID"),
+  /** Configuration ID из App Dashboard → WhatsApp → Embedded Signup. Тоже публичный. */
+  configId: () => required("NEXT_PUBLIC_WHATSAPP_CONFIG_ID"),
   graphVersion: () => process.env.GRAPH_API_VERSION ?? "v22.0",
   encryptionKey: () => required("ENCRYPTION_KEY"),
   publicBaseUrl: () => process.env.PUBLIC_BASE_URL ?? "",

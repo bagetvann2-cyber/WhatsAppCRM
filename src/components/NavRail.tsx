@@ -5,6 +5,7 @@ import { usePathname } from "next/navigation";
 import { signOutAction } from "@/app/(auth)/actions";
 import {
   BoltIcon,
+  ChannelIcon,
   ChatIcon,
   LogoutIcon,
   MegaphoneIcon,
@@ -35,6 +36,7 @@ const ITEMS: Item[] = [
   { href: "/automation", label: "Автоответы", Icon: BoltIcon, manageOnly: true },
   { href: "/ai-bot", label: "ИИ-помощник", Icon: SparkIcon, manageOnly: true },
   { href: "/reports", label: "Отчёты", Icon: ReportIcon, manageOnly: true },
+  { href: "/channels", label: "Каналы", Icon: ChannelIcon, manageOnly: true },
   { href: "/team", label: "Команда", Icon: TeamIcon, manageOnly: true },
   { href: "/billing", label: "Тариф", Icon: WalletIcon, manageOnly: true },
 ];
