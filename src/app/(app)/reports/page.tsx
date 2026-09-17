@@ -73,15 +73,15 @@ export default async function ReportsPage({ searchParams }: PageProps<"/reports"
         ) : (
           stats.numbers.map((number) => (
             <Row
-              key={number.phoneNumberId}
+              key={number.channelId}
               label={
-                number.displayNumber ? formatPhone(number.displayNumber) : number.phoneNumberId
+                number.displayNumber
+                  ? formatPhone(number.displayNumber)
+                  : (number.phoneNumberId ?? "Номер WhatsApp")
               }
               note={
                 number.connected
-                  ? number.qualityRating
-                    ? `номер подключён, качество по оценке Meta: ${number.qualityRating}`
-                    : "номер подключён к кабинету Meta"
+                  ? "номер подключён к кабинету Meta"
                   : "не привязан к WABA — шаблоны и рассылки не работают"
               }
               value={number.connected ? "готов" : "нужна настройка"}

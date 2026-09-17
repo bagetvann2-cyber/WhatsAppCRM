@@ -18,7 +18,7 @@ export function ContactRow({
 }: {
   contact: {
     id: string;
-    waId: string;
+    externalUserId: string;
     name: string | null;
     note: string | null;
     tagIds: string[];
@@ -37,7 +37,7 @@ export function ContactRow({
         aria-hidden="true"
         className="grid size-9 shrink-0 place-items-center rounded-full bg-panel-muted text-sm font-semibold text-ink-muted"
       >
-        {initials(contact.name, contact.waId)}
+        {initials(contact.name, contact.externalUserId)}
       </span>
 
       <div className="min-w-0 flex-1">
@@ -79,10 +79,10 @@ export function ContactRow({
         ) : (
           <>
             <p className="truncate text-sm font-medium text-ink">
-              {contact.name ?? formatPhone(contact.waId)}
+              {contact.name ?? formatPhone(contact.externalUserId)}
             </p>
             <p className="truncate text-xs tabular-nums text-ink-faint">
-              {formatPhone(contact.waId)}
+              {formatPhone(contact.externalUserId)}
             </p>
             {contact.note && <p className="mt-1 text-xs text-ink-muted">{contact.note}</p>}
 

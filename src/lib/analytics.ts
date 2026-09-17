@@ -14,9 +14,9 @@ export type Dashboard = {
   inbound7d: number;
   outbound7d: number;
   numbers: {
-    phoneNumberId: string;
+    channelId: string;
+    phoneNumberId: string | null;
     displayNumber: string | null;
-    qualityRating: string | null;
     connected: boolean;
   }[];
 };
@@ -67,8 +67,8 @@ export async function dashboard(organizationId: string): Promise<Dashboard> {
           timestamp: { gte: week },
         },
       }),
-      prisma.whatsappNumber.findMany({
-        where: { organizationId },
+      prisma.channel.findMany({
+        where: { organizationId, type: "WHATSAPP" },
         orderBy: { createdAt: "asc" },
       }),
     ]);
@@ -80,13 +80,11 @@ export async function dashboard(organizationId: string): Promise<Dashboard> {
     openWindows,
     inbound7d,
     outbound7d,
-    numbers: numbers.map((number) => ({
-      phoneNumberId: number.phoneNumberId,
-      displayNumber: number.displayNumber,
-      qualityRating: number.qualityRating,
-      // Номер считается подключённым, когда через него уже шла переписка:
-      // запись в базе сама по себе ничего не доказывает.
-      connected: Boolean(number.wabaId),
+    numbers: numbers.map((channel) => ({
+      channelId: channel.id,
+      phoneNumberId: channel.externalId,
+      displayNumber: channel.externalUsername,
+      connected: channel.status === "ACTIVE",
     })),
   };
 }

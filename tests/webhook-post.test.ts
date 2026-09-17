@@ -7,11 +7,14 @@ import { createTestOrg, dropTestOrg } from "./helpers";
 const secret = "post-secret";
 const waId = "77015554433";
 let organizationId: string;
+let channelId: string;
 
 beforeAll(async () => {
   process.env.WHATSAPP_APP_SECRET = secret;
   await dropTestOrg("PNID-POST");
-  organizationId = (await createTestOrg("PNID-POST")).id;
+  const testOrg = await createTestOrg("PNID-POST");
+  organizationId = testOrg.id;
+  channelId = testOrg.channelId;
 });
 
 afterEach(async () => {
@@ -69,7 +72,7 @@ test("сохраняет сообщение и отвечает 200", async () =
   const response = await POST(request(payload("wamid.POST.1")));
   expect(response.status).toBe(200);
 
-  const stored = await prisma.message.findUnique({ where: { wamid: "wamid.POST.1" } });
+  const stored = await prisma.message.findUnique({ where: { channelId_externalMessageId: { channelId, externalMessageId: "wamid.POST.1" } } });
   expect(stored?.text).toBe("Привет");
 });
 
@@ -77,7 +80,7 @@ test("отклоняет запрос с чужой подписью и ниче
   const response = await POST(request(payload("wamid.POST.2"), "wrong-secret"));
   expect(response.status).toBe(403);
 
-  const stored = await prisma.message.findUnique({ where: { wamid: "wamid.POST.2" } });
+  const stored = await prisma.message.findUnique({ where: { channelId_externalMessageId: { channelId, externalMessageId: "wamid.POST.2" } } });
   expect(stored).toBeNull();
 });
 
@@ -86,7 +89,7 @@ test("повторная доставка возвращает 200 и не со�
   const second = await POST(request(payload("wamid.POST.3")));
 
   expect(second.status).toBe(200);
-  expect(await prisma.message.count({ where: { wamid: "wamid.POST.3" } })).toBe(1);
+  expect(await prisma.message.count({ where: { channelId, externalMessageId: "wamid.POST.3" } })).toBe(1);
 });
 
 test("неизвестная структура не роняет обработчик", async () => {

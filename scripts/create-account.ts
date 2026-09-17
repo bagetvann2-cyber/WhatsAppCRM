@@ -27,12 +27,19 @@ async function main() {
   console.log(`Владелец:  ${user.email}`);
 
   if (phoneNumberId) {
-    const number = await prisma.whatsappNumber.upsert({
-      where: { phoneNumberId },
+    const channel = await prisma.channel.upsert({
+      where: { type_externalId: { type: "WHATSAPP", externalId: phoneNumberId } },
       update: { organizationId: organization.id },
-      create: { organizationId: organization.id, phoneNumberId },
+      create: {
+        organizationId: organization.id,
+        type: "WHATSAPP",
+        connectionMethod: "WA_MANUAL",
+        name: "WhatsApp",
+        status: "ACTIVE",
+        externalId: phoneNumberId,
+      },
     });
-    console.log(`Номер:     ${number.phoneNumberId} привязан к компании`);
+    console.log(`Номер:     ${channel.externalId} привязан к компании`);
   }
 
   await prisma.$disconnect();

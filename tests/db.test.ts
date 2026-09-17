@@ -4,10 +4,13 @@ import { createTestOrg, dropTestOrg } from "./helpers";
 
 const phoneNumberId = "test-pnid";
 let organizationId: string;
+let channelId: string;
 
 beforeAll(async () => {
   await dropTestOrg(phoneNumberId);
-  organizationId = (await createTestOrg(phoneNumberId)).id;
+  const testOrg = await createTestOrg(phoneNumberId);
+  organizationId = testOrg.id;
+  channelId = testOrg.channelId;
 });
 
 afterAll(async () => {
@@ -17,14 +20,15 @@ afterAll(async () => {
 
 test("сохраняет сообщение в цепочке контакт → диалог → сообщение", async () => {
   const contact = await prisma.contact.create({
-    data: { organizationId, waId: "77010000001", name: "Тест" },
+    data: { organizationId, channelId, externalUserId: "77010000001", name: "Тест" },
   });
   const conversation = await prisma.conversation.create({
-    data: { organizationId, contactId: contact.id, phoneNumberId },
+    data: { organizationId, contactId: contact.id, channelId },
   });
   const message = await prisma.message.create({
     data: {
-      wamid: "wamid.test.db",
+      externalMessageId: "wamid.test.db",
+      channelId,
       conversationId: conversation.id,
       direction: "INBOUND",
       type: "text",
@@ -39,15 +43,25 @@ test("сохраняет сообщение в цепочке контакт →
 
 test("удаление компании уносит её контакты и переписку", async () => {
   const organization = await prisma.organization.create({ data: { name: "На удаление" } });
+  const channel = await prisma.channel.create({
+    data: {
+      organizationId: organization.id,
+      type: "WHATSAPP",
+      connectionMethod: "WA_MANUAL",
+      name: "WhatsApp",
+      status: "ACTIVE",
+      externalId: "pnid-drop",
+    },
+  });
   const contact = await prisma.contact.create({
-    data: { organizationId: organization.id, waId: "77010000009" },
+    data: { organizationId: organization.id, channelId: channel.id, externalUserId: "77010000009" },
   });
   await prisma.conversation.create({
-    data: { organizationId: organization.id, contactId: contact.id, phoneNumberId: "pnid-drop" },
+    data: { organizationId: organization.id, contactId: contact.id, channelId: channel.id },
   });
 
   await prisma.organization.delete({ where: { id: organization.id } });
 
   expect(await prisma.contact.findUnique({ where: { id: contact.id } })).toBeNull();
-  expect(await prisma.conversation.count({ where: { phoneNumberId: "pnid-drop" } })).toBe(0);
+  expect(await prisma.conversation.count({ where: { channelId: channel.id } })).toBe(0);
 });

@@ -16,9 +16,9 @@ const waId = "77013334455";
 let organizationId: string;
 
 const sendMock = vi.hoisted(() => vi.fn());
-vi.mock("@/lib/whatsapp/client", () => ({
-  sendTextMessage: sendMock,
-  sendTemplateMessage: vi.fn(),
+vi.mock("@/lib/channels", async (importOriginal) => ({
+  ...(await importOriginal<typeof import("@/lib/channels")>()),
+  sendChannelText: sendMock,
 }));
 
 const workingHours = new Date("2026-08-17T05:00:00Z"); // пн, 10:00 в Алматы
@@ -36,7 +36,7 @@ const base: AutomationSettings = {
 beforeEach(async () => {
   sendMock.mockReset();
   let counter = 0;
-  sendMock.mockImplementation(async () => ({ wamid: `wamid.AUTO.${++counter}` }));
+  sendMock.mockImplementation(async () => ({ externalMessageId: `wamid.AUTO.${++counter}` }));
 
   await dropTestOrg(phoneNumberId);
   organizationId = (await createTestOrg(phoneNumberId)).id;
@@ -144,12 +144,14 @@ test("на первое обращение робот отвечает и сох
   const reply = await runAutomation({
     organizationId,
     conversationId,
-    waId,
+    to: waId,
     now: workingHours,
   });
 
   expect(reply).toMatchObject({ kind: "greeting" });
-  expect(sendMock).toHaveBeenCalledWith(waId, base.greetingText);
+  expect(sendMock).toHaveBeenCalledWith(
+    expect.objectContaining({ to: waId, text: base.greetingText }),
+  );
 
   const messages = await prisma.message.findMany({ where: { conversationId } });
   expect(messages).toHaveLength(2);
@@ -162,11 +164,11 @@ test("на первое обращение робот отвечает и сох
 test("на второе сообщение в рабочее время робот молчит", async () => {
   await saveAutomation(organizationId, base);
   const { conversationId } = await incoming("Здравствуйте", "wamid.IN.1");
-  await runAutomation({ organizationId, conversationId, waId, now: workingHours });
+  await runAutomation({ organizationId, conversationId, to: waId, now: workingHours });
   sendMock.mockClear();
 
   await incoming("Ещё вопрос", "wamid.IN.2");
-  const reply = await runAutomation({ organizationId, conversationId, waId, now: workingHours });
+  const reply = await runAutomation({ organizationId, conversationId, to: waId, now: workingHours });
 
   expect(reply).toBeNull();
   expect(sendMock).not.toHaveBeenCalled();
@@ -176,13 +178,13 @@ test("вечером второе сообщение получает автоо
   await saveAutomation(organizationId, { ...base, greetingEnabled: false });
   const { conversationId } = await incoming("Вы работаете?", "wamid.IN.1");
 
-  expect(await runAutomation({ organizationId, conversationId, waId, now: afterHours })).toMatchObject(
+  expect(await runAutomation({ organizationId, conversationId, to: waId, now: afterHours })).toMatchObject(
     { kind: "away" },
   );
 
   await incoming("Ау", "wamid.IN.2");
   expect(
-    await runAutomation({ organizationId, conversationId, waId, now: afterHours }),
+    await runAutomation({ organizationId, conversationId, to: waId, now: afterHours }),
   ).toBeNull();
 
   expect(sendMock).toHaveBeenCalledTimes(1);
@@ -193,7 +195,7 @@ test("сбой отправки не роняет приём: входящее �
   sendMock.mockRejectedValueOnce(new Error("Graph API недоступен"));
 
   const { conversationId } = await incoming("Здравствуйте", "wamid.IN.1");
-  const reply = await runAutomation({ organizationId, conversationId, waId, now: workingHours });
+  const reply = await runAutomation({ organizationId, conversationId, to: waId, now: workingHours });
 
   expect(reply).toBeNull();
   expect(await prisma.message.count({ where: { conversationId } })).toBe(1);

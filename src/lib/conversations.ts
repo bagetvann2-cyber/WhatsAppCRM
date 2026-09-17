@@ -32,7 +32,7 @@ export async function listConversations(
         ? {
             OR: [
               { contact: { name: { contains: q, mode: "insensitive" } } },
-              { contact: { waId: { contains: q } } },
+              { contact: { externalUserId: { contains: q } } },
               { messages: { some: { text: { contains: q, mode: "insensitive" } } } },
             ],
           }
@@ -41,6 +41,7 @@ export async function listConversations(
     orderBy: { lastMessageAt: "desc" },
     include: {
       contact: true,
+      channel: true,
       assignee: { select: { id: true, name: true, email: true } },
       messages: { orderBy: { timestamp: "desc" }, take: 1 },
     },
@@ -55,6 +56,7 @@ export async function getConversation(organizationId: string, id: string) {
     where: { id, organizationId },
     include: {
       contact: true,
+      channel: true,
       assignee: { select: { id: true, name: true, email: true } },
       messages: { orderBy: { timestamp: "asc" } },
     },

@@ -14,6 +14,29 @@ enum MessageDirection {
   OUTBOUND
 }
 
+enum ChannelType {
+  WHATSAPP
+  TELEGRAM
+  SIMULATOR
+}
+
+/// Как канал подключён — от этого зависит, какой адаптер им пользуется
+/// и какие шаги нужны при создании (см. src/lib/channels).
+enum ChannelConnectionMethod {
+  WA_EMBEDDED_SIGNUP
+  WA_MANUAL
+  TG_BUSINESS
+  TG_OWN_BOT
+  SIMULATOR
+}
+
+enum ChannelStatus {
+  PENDING
+  ACTIVE
+  ERROR
+  DISCONNECTED
+}
+
 enum Role {
   OWNER
   ADMIN
@@ -72,22 +95,22 @@ enum InvoiceStatus {
 /// Тариф. Цены, лимиты и состав задаются данными: Meta меняет правила чаще,
 /// чем мы готовы выкатывать релиз ради новой цифры.
 model Plan {
-  id            String  @id @default(cuid())
-  code          String  @unique
-  name          String
+  id                 String   @id @default(cuid())
+  code               String   @unique
+  name               String
   /// Цена подписки в тенге за месяц. 0 — пробный.
-  monthlyPrice  Int
+  monthlyPrice       Int
   /// Сколько операторов включено; каждый следующий стоит extraOperatorPrice.
-  operatorsIncluded  Int @default(3)
-  extraOperatorPrice Int @default(5000)
-  numbersIncluded    Int @default(1)
+  operatorsIncluded  Int      @default(3)
+  extraOperatorPrice Int      @default(5000)
+  numbersIncluded    Int      @default(1)
   /// Доступ к интеграциям с CRM — отличие «Бизнеса» от «Старта».
-  integrations  Boolean @default(false)
-  trialDays     Int     @default(0)
+  integrations       Boolean  @default(false)
+  trialDays          Int      @default(0)
   /// Что входит — строками для карточки тарифа, без правки вёрстки.
-  features      String[]
-  sortOrder     Int     @default(0)
-  active        Boolean @default(true)
+  features           String[]
+  sortOrder          Int      @default(0)
+  active             Boolean  @default(true)
 
   subscriptions Subscription[]
 }
@@ -149,27 +172,27 @@ model BalanceOperation {
 /// Компания-клиент платформы. Всё остальное принадлежит организации:
 /// ни один запрос к данным не выполняется без привязки к ней.
 model Organization {
-  id            String         @id @default(cuid())
-  name          String
-  hideCustomerNumbers Boolean  @default(false)
+  id                  String             @id @default(cuid())
+  name                String
+  hideCustomerNumbers Boolean            @default(false)
   /// Баланс на сообщения в тенге. Тиын не храним: в обороте его нет,
   /// а дробные копейки в биллинге — источник вечных расхождений.
-  balance       Int            @default(0)
-  createdAt     DateTime       @default(now())
-  subscription  Subscription?
-  invoices      Invoice[]
-  operations    BalanceOperation[]
-  memberships   Membership[]
-  invites       Invite[]
-  contacts      Contact[]
-  conversations Conversation[]
-  numbers       WhatsappNumber[]
-  templates     MessageTemplate[]
-  broadcasts    Broadcast[]
-  tags          Tag[]
-  automation    Automation?
-  aiBot         AiBot?
-  aiReplies     AiReply[]
+  balance             Int                @default(0)
+  createdAt           DateTime           @default(now())
+  subscription        Subscription?
+  invoices            Invoice[]
+  operations          BalanceOperation[]
+  memberships         Membership[]
+  invites             Invite[]
+  contacts            Contact[]
+  conversations       Conversation[]
+  channels            Channel[]
+  templates           MessageTemplate[]
+  broadcasts          Broadcast[]
+  tags                Tag[]
+  automation          Automation?
+  aiBot               AiBot?
+  aiReplies           AiReply[]
 }
 
 /// Настройки ИИ-помощника. Отвечает клиентам по анкете компании,
@@ -241,21 +264,21 @@ model Automation {
 /// Рассылка по одобренному шаблону. Получатели фиксируются в момент создания,
 /// чтобы отчёт не «поплыл», если контакты потом изменятся.
 model Broadcast {
-  id             String                @id @default(cuid())
+  id             String               @id @default(cuid())
   organizationId String
-  organization   Organization          @relation(fields: [organizationId], references: [id], onDelete: Cascade)
+  organization   Organization         @relation(fields: [organizationId], references: [id], onDelete: Cascade)
   templateId     String
-  template       MessageTemplate       @relation(fields: [templateId], references: [id], onDelete: Cascade)
+  template       MessageTemplate      @relation(fields: [templateId], references: [id], onDelete: Cascade)
   name           String
   /// Поисковый запрос, по которому отобраны получатели. Пусто — все контакты.
   segmentQuery   String?
   /// Метки, по которым отобран сегмент. Пусто — без ограничения по меткам.
   segmentTagIds  String[]
-  status         BroadcastStatus       @default(DRAFT)
+  status         BroadcastStatus      @default(DRAFT)
   stoppedReason  String?
   startedAt      DateTime?
   finishedAt     DateTime?
-  createdAt      DateTime              @default(now())
+  createdAt      DateTime             @default(now())
   recipients     BroadcastRecipient[]
 
   @@index([organizationId, createdAt])
@@ -301,28 +324,50 @@ model MessageTemplate {
   @@index([organizationId, status])
 }
 
-/// Подключённый номер WhatsApp. По нему входящий вебхук находит компанию:
-/// Meta присылает phone_number_id, всё остальное выводится из него.
-model WhatsappNumber {
-  id             String       @id @default(cuid())
-  organizationId String
-  organization   Organization @relation(fields: [organizationId], references: [id], onDelete: Cascade)
-  phoneNumberId  String       @unique
-  /// WABA — аккаунт компании в Meta. Шаблоны живут на нём, а не на номере.
-  wabaId         String?
-  displayNumber  String?
-  qualityRating  String?
-  createdAt      DateTime     @default(now())
+/// Подключённый канал компании: номер WhatsApp, Telegram-бот или демо-симулятор.
+/// По (type, externalId) входящий вебхук находит организацию.
+model Channel {
+  id                   String                  @id @default(cuid())
+  organizationId       String
+  organization         Organization            @relation(fields: [organizationId], references: [id], onDelete: Cascade)
+  type                 ChannelType
+  connectionMethod     ChannelConnectionMethod
+  name                 String
+  isActive             Boolean                 @default(true)
+  status               ChannelStatus           @default(PENDING)
+  /// Понятный пользователю текст причины ошибки — не стектрейс.
+  statusError          String?
+  /// Текущий шаг долгого подключения (Embedded Signup) — для прогресса в интерфейсе.
+  connectStep          String?
+  /// phone_number_id (WhatsApp) / business_connection_id (Telegram Business) / id бота (свой бот).
+  externalId           String?
+  /// Номер телефона или @username — то, что показываем в списке каналов.
+  externalUsername     String?
+  /// Telegram-аккаунт владельца, привязавшего Business-канал: по нему отличаем
+  /// его сообщения от сообщений клиента в одном business_connection.
+  telegramUserId       String?
+  /// WhatsApp: access_token, wabaId, pin. Свой бот Telegram: bot_token, webhook secret.
+  /// Формат "v1:iv:tag:data" — см. src/lib/crypto.ts. В API не возвращается никогда.
+  credentialsEncrypted String?
+  createdAt            DateTime                @default(now())
+  updatedAt            DateTime                @updatedAt
 
+  contacts      Contact[]
+  conversations Conversation[]
+  messages      Message[]
+
+  /// WhatsApp пока живёт по номеру телефона: один и тот же phone_number_id
+  /// не может принадлежать двум разным компаниям платформы одновременно.
+  @@unique([type, externalId])
   @@index([organizationId])
 }
 
 model User {
-  id           String       @id @default(cuid())
-  email        String       @unique
+  id           String         @id @default(cuid())
+  email        String         @unique
   passwordHash String
   name         String?
-  createdAt    DateTime     @default(now())
+  createdAt    DateTime       @default(now())
   memberships  Membership[]
   sessions     Session[]
   assigned     Conversation[]
@@ -372,26 +417,30 @@ model Invite {
 }
 
 model Contact {
-  id             String               @id @default(cuid())
-  organizationId String
-  organization   Organization         @relation(fields: [organizationId], references: [id], onDelete: Cascade)
-  waId           String
-  name           String?
+  id                String               @id @default(cuid())
+  organizationId    String
+  organization      Organization         @relation(fields: [organizationId], references: [id], onDelete: Cascade)
+  channelId         String
+  channel           Channel              @relation(fields: [channelId], references: [id], onDelete: Cascade)
+  /// Номер телефона (WhatsApp) или chat_id (Telegram) — в разных каналах разное
+  /// адресное пространство, поэтому уникальность считается внутри канала, не организации.
+  externalUserId    String
+  name              String?
   /// Заметка оператора — видна команде, клиенту нет.
-  note           String?
+  note              String?
   /// Откуда пришёл контакт: написал сам, импорт, перенос истории.
-  source         String?
+  source            String?
   /// Отказ от рассылок. Служебные сообщения по-прежнему уходят: клиент
   /// отписывался от рекламы, а не от подтверждения своей записи.
-  unsubscribedAt DateTime?
+  unsubscribedAt    DateTime?
   /// Как отписался: сам написал «стоп», кнопкой в рассылке или снял оператор.
   unsubscribeSource String?
-  createdAt      DateTime             @default(now())
-  conversations  Conversation[]
-  broadcasts     BroadcastRecipient[]
-  tags           ContactTag[]
+  createdAt         DateTime             @default(now())
+  conversations     Conversation[]
+  broadcasts        BroadcastRecipient[]
+  tags              ContactTag[]
 
-  @@unique([organizationId, waId])
+  @@unique([channelId, externalUserId])
   @@index([organizationId])
 }
 
@@ -424,7 +473,8 @@ model Conversation {
   organization    Organization @relation(fields: [organizationId], references: [id], onDelete: Cascade)
   contactId       String
   contact         Contact      @relation(fields: [contactId], references: [id], onDelete: Cascade)
-  phoneNumberId   String
+  channelId       String
+  channel         Channel      @relation(fields: [channelId], references: [id], onDelete: Cascade)
   lastMessageAt   DateTime     @default(now())
   windowExpiresAt DateTime?
   /// Когда в этот диалог последний раз уходил автоответ вне рабочих часов.
@@ -438,28 +488,33 @@ model Conversation {
   assignedAt      DateTime?
   messages        Message[]
 
-  @@unique([contactId, phoneNumberId])
+  @@unique([contactId, channelId])
   @@index([organizationId, lastMessageAt])
   @@index([assigneeId])
+  @@index([channelId])
 }
 
 model Message {
-  id             String           @id @default(cuid())
-  wamid          String           @unique
-  conversationId String
-  conversation   Conversation     @relation(fields: [conversationId], references: [id], onDelete: Cascade)
-  direction      MessageDirection
-  type           String
+  id                String           @id @default(cuid())
+  /// id сообщения у канала (wamid у WhatsApp, message_id у Telegram). У сообщений,
+  /// рождённых внутри платформы (симулятор), — синтетический id платформы.
+  externalMessageId String
+  channelId         String
+  channel           Channel          @relation(fields: [channelId], references: [id], onDelete: Cascade)
+  conversationId    String
+  conversation      Conversation     @relation(fields: [conversationId], references: [id], onDelete: Cascade)
+  direction         MessageDirection
+  type              String
   /// Для вложения здесь подпись к файлу: у Meta это то же поле сообщения.
-  text           String?
-  status         String?
-  timestamp      DateTime
-  createdAt      DateTime         @default(now())
+  text              String?
+  status            String?
+  timestamp         DateTime
+  createdAt         DateTime         @default(now())
 
   /// Кто отправил, если это человек. У автоответа, рассылки и ИИ-помощника
   /// автора нет — по этому же признаку они не попадают в нагрузку операторов.
-  authorId       String?
-  author         User?            @relation(fields: [authorId], references: [id], onDelete: SetNull)
+  authorId String?
+  author   User?   @relation(fields: [authorId], references: [id], onDelete: SetNull)
 
   /// Идентификатор файла у Meta. Она удаляет медиа через 30 дней,
   /// поэтому копию храним у себя, а id оставляем для повторной попытки.
@@ -475,6 +530,7 @@ model Message {
   /// Голосовое, а не приложенный музыкальный файл.
   voice      Boolean @default(false)
 
+  @@unique([channelId, externalMessageId])
   @@index([conversationId, timestamp])
   @@index([authorId])
 }

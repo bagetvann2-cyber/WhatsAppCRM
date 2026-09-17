@@ -16,7 +16,7 @@ export function contactWhere(organizationId: string, filter: ContactFilter = {})
       ? {
           OR: [
             { name: { contains: q, mode: "insensitive" as const } },
-            { waId: { contains: q } },
+            { externalUserId: { contains: q } },
             { note: { contains: q, mode: "insensitive" as const } },
           ],
         }
@@ -124,7 +124,7 @@ export function normalizePhone(raw: string): string | null {
   return digits;
 }
 
-export type ImportRow = { waId: string; name: string | null };
+export type ImportRow = { externalUserId: string; name: string | null };
 
 /**
  * Разбирает CSV: первая колонка — номер, вторая — имя. Заголовок распознаётся
@@ -142,40 +142,59 @@ export function parseContactsCsv(text: string): { rows: ImportRow[]; skipped: nu
     }
 
     const cells = trimmed.split(/[;,\t]/).map((cell) => cell.trim().replace(/^"|"$/g, ""));
-    const waId = normalizePhone(cells[0] ?? "");
+    const externalUserId = normalizePhone(cells[0] ?? "");
 
-    if (!waId) {
+    if (!externalUserId) {
       skipped += 1;
       continue;
     }
-    if (seen.has(waId)) {
+    if (seen.has(externalUserId)) {
       skipped += 1;
       continue;
     }
 
-    seen.add(waId);
-    rows.push({ waId, name: cells[1]?.trim() || null });
+    seen.add(externalUserId);
+    rows.push({ externalUserId, name: cells[1]?.trim() || null });
   }
 
   return { rows, skipped };
 }
 
-/** Импорт без дублей: существующий контакт обновляет имя, если оно было пустым. */
+/**
+ * Импорт без дублей: существующий контакт обновляет имя, если оно было пустым.
+ * Импортированные номера — это всегда WhatsApp, поэтому канал берём сами:
+ * первый активный канал WhatsApp организации. Выбор канала в форме импорта —
+ * отдельная задача на потом, если у компании их станет больше одного.
+ */
 export async function importContacts(
   organizationId: string,
   rows: ImportRow[],
 ): Promise<{ created: number; updated: number }> {
+  const channel = await prisma.channel.findFirst({
+    where: { organizationId, type: "WHATSAPP" },
+    orderBy: { createdAt: "asc" },
+  });
+  if (!channel) {
+    throw new Error("У компании ещё нет подключённого канала WhatsApp.");
+  }
+
   let created = 0;
   let updated = 0;
 
   for (const row of rows) {
     const existing = await prisma.contact.findUnique({
-      where: { organizationId_waId: { organizationId, waId: row.waId } },
+      where: { channelId_externalUserId: { channelId: channel.id, externalUserId: row.externalUserId } },
     });
 
     if (!existing) {
       await prisma.contact.create({
-        data: { organizationId, waId: row.waId, name: row.name, source: "Импорт" },
+        data: {
+          organizationId,
+          channelId: channel.id,
+          externalUserId: row.externalUserId,
+          name: row.name,
+          source: "Импорт",
+        },
       });
       created += 1;
       continue;
@@ -198,7 +217,7 @@ export function toCsv(contacts: ContactListItem[]): string {
   for (const contact of contacts) {
     lines.push(
       [
-        escape(contact.waId),
+        escape(contact.externalUserId),
         escape(contact.name ?? ""),
         escape(contact.tags.map((t) => t.tag.name).join(", ")),
         escape(contact.note ?? ""),

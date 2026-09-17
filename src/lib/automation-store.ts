@@ -7,7 +7,8 @@ import {
   normalizeSchedule,
   type DaySchedule,
 } from "@/lib/automation";
-import { sendTextMessage } from "@/lib/whatsapp/client";
+import { sendChannelText } from "@/lib/channels";
+import { isReplyWindowOpen } from "@/lib/conversation-window";
 
 /** Второй автоответ «мы не работаем» в тот же вечер клиенту не нужен. */
 const AWAY_COOLDOWN_HOURS = 8;
@@ -95,7 +96,8 @@ export function decideAutoReply(input: {
 export async function runAutomation(input: {
   organizationId: string;
   conversationId: string;
-  waId: string;
+  /** Адресат в терминах канала: номер телефона у WhatsApp, chat_id у Telegram. */
+  to: string;
   now?: Date;
 }): Promise<AutoReply> {
   const settings = await getAutomation(input.organizationId);
@@ -105,10 +107,15 @@ export async function runAutomation(input: {
 
   const conversation = await prisma.conversation.findUnique({
     where: { id: input.conversationId },
-    select: { awayRepliedAt: true, _count: { select: { messages: true } } },
+    select: {
+      awayRepliedAt: true,
+      windowExpiresAt: true,
+      channel: true,
+      _count: { select: { messages: true } },
+    },
   });
 
-  if (!conversation) {
+  if (!conversation || !isReplyWindowOpen(conversation.channel, conversation)) {
     return null;
   }
 
@@ -125,12 +132,17 @@ export async function runAutomation(input: {
   }
 
   try {
-    const { wamid } = await sendTextMessage(input.waId, reply.text);
+    const { externalMessageId } = await sendChannelText({
+      channel: conversation.channel,
+      to: input.to,
+      text: reply.text,
+    });
     const now = input.now ?? new Date();
 
     await prisma.message.create({
       data: {
-        wamid,
+        externalMessageId,
+        channelId: conversation.channel.id,
         conversationId: input.conversationId,
         direction: "OUTBOUND",
         type: "text",

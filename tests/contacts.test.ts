@@ -17,16 +17,25 @@ import { createTestOrg, dropTestOrg } from "./helpers";
 
 const phoneNumberId = "PNID-CONTACTS";
 let organizationId: string;
+let channelId: string;
 
 beforeEach(async () => {
   await dropTestOrg(phoneNumberId);
-  organizationId = (await createTestOrg(phoneNumberId)).id;
+  const testOrg = await createTestOrg(phoneNumberId);
+  organizationId = testOrg.id;
+  channelId = testOrg.channelId;
 
   await prisma.contact.createMany({
     data: [
-      { organizationId, waId: "77011110001", name: "Айгерим" },
-      { organizationId, waId: "77011110002", name: "Ержан", note: "Просил перезвонить утром" },
-      { organizationId, waId: "77021110003", name: "Дана" },
+      { organizationId, channelId, externalUserId: "77011110001", name: "Айгерим" },
+      {
+        organizationId,
+        channelId,
+        externalUserId: "77011110002",
+        name: "Ержан",
+        note: "Просил перезвонить утром",
+      },
+      { organizationId, channelId, externalUserId: "77021110003", name: "Дана" },
     ],
   });
 });
@@ -57,8 +66,8 @@ test("CSV разбирается, заголовок и дубли отбрас�
   );
 
   expect(rows).toEqual([
-    { waId: "77011110004", name: "Мадина" },
-    { waId: "77011110005", name: "Нурлан" },
+    { externalUserId: "77011110004", name: "Мадина" },
+    { externalUserId: "77011110005", name: "Нурлан" },
   ]);
   // Пропущены: строка заголовка, дубль и мусор.
   expect(skipped).toBe(3);
@@ -66,25 +75,25 @@ test("CSV разбирается, заголовок и дубли отбрас�
 
 test("импорт создаёт новых и не плодит дубли", async () => {
   const first = await importContacts(organizationId, [
-    { waId: "77011110001", name: "Айгерим" },
-    { waId: "77011110009", name: "Новый" },
+    { externalUserId: "77011110001", name: "Айгерим" },
+    { externalUserId: "77011110009", name: "Новый" },
   ]);
 
   expect(first).toEqual({ created: 1, updated: 0 });
   expect(await countContacts(organizationId)).toBe(4);
 
-  const second = await importContacts(organizationId, [{ waId: "77011110009", name: "Другое имя" }]);
+  const second = await importContacts(organizationId, [{ externalUserId: "77011110009", name: "Другое имя" }]);
   expect(second).toEqual({ created: 0, updated: 0 });
 });
 
 test("импорт дописывает имя, если его не было", async () => {
-  await prisma.contact.create({ data: { organizationId, waId: "77011110010" } });
+  await prisma.contact.create({ data: { organizationId, channelId, externalUserId: "77011110010" } });
 
-  const result = await importContacts(organizationId, [{ waId: "77011110010", name: "Асель" }]);
+  const result = await importContacts(organizationId, [{ externalUserId: "77011110010", name: "Асель" }]);
 
   expect(result).toEqual({ created: 0, updated: 1 });
   const contact = await prisma.contact.findFirstOrThrow({
-    where: { organizationId, waId: "77011110010" },
+    where: { organizationId, externalUserId: "77011110010" },
   });
   expect(contact.name).toBe("Асель");
 });
@@ -103,7 +112,7 @@ test("метка создаётся один раз и ставится пере
   expect(again.id).toBe(tag.id);
 
   const contact = await prisma.contact.findFirstOrThrow({
-    where: { organizationId, waId: "77011110001" },
+    where: { organizationId, externalUserId: "77011110001" },
   });
 
   await toggleTag(organizationId, contact.id, tag.id);
@@ -150,7 +159,7 @@ test("удаление метки снимает её со всех контак
 
 test("имя и заметка сохраняются, пустое значение очищает поле", async () => {
   const contact = await prisma.contact.findFirstOrThrow({
-    where: { organizationId, waId: "77011110002" },
+    where: { organizationId, externalUserId: "77011110002" },
   });
 
   await updateContact(organizationId, contact.id, { name: "Ержан А.", note: "  " });
@@ -162,7 +171,7 @@ test("имя и заметка сохраняются, пустое значен
 
 test("выгрузка в CSV содержит заголовок и экранирует кавычки", async () => {
   const contact = await prisma.contact.findFirstOrThrow({
-    where: { organizationId, waId: "77011110001" },
+    where: { organizationId, externalUserId: "77011110001" },
   });
   await updateContact(organizationId, contact.id, { note: 'Просил «скидку" срочно' });
 

@@ -4,7 +4,7 @@ import {
   handleUnsubscribeMessage,
   UNSUBSCRIBE_CONFIRMATION,
 } from "@/lib/unsubscribe";
-import { sendTextMessage } from "@/lib/whatsapp/client";
+import { sendChannelText } from "@/lib/channels";
 import { runAiBot } from "@/lib/ai-bot-store";
 import { runAutomation } from "@/lib/automation-store";
 import { messageEvents } from "@/lib/events";
@@ -76,10 +76,16 @@ export async function POST(request: Request): Promise<Response> {
 
     if (unsubscribed) {
       try {
-        const { wamid } = await sendTextMessage(message.from, UNSUBSCRIBE_CONFIRMATION);
+        const channel = await prisma.channel.findUniqueOrThrow({ where: { id: result.channelId } });
+        const { externalMessageId } = await sendChannelText({
+          channel,
+          to: message.from,
+          text: UNSUBSCRIBE_CONFIRMATION,
+        });
         await prisma.message.create({
           data: {
-            wamid,
+            externalMessageId,
+            channelId: result.channelId,
             conversationId: result.conversationId,
             direction: "OUTBOUND",
             type: "text",
@@ -102,7 +108,7 @@ export async function POST(request: Request): Promise<Response> {
     const reply = await runAutomation({
       organizationId: result.organizationId,
       conversationId: result.conversationId,
-      waId: message.from,
+      to: message.from,
     });
 
     if (reply) {
@@ -113,7 +119,7 @@ export async function POST(request: Request): Promise<Response> {
     const bot = await runAiBot({
       organizationId: result.organizationId,
       conversationId: result.conversationId,
-      waId: message.from,
+      to: message.from,
     });
 
     if (bot.status === "answered" || bot.status === "handoff") {

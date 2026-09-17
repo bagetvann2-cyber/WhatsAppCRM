@@ -44,7 +44,15 @@ function tabHref(scope: Scope, query: string): string {
   return search ? `/?${search}` : "/";
 }
 
-function Avatar({ name, waId, active }: { name: string | null; waId: string; active: boolean }) {
+function Avatar({
+  name,
+  externalUserId,
+  active,
+}: {
+  name: string | null;
+  externalUserId: string;
+  active: boolean;
+}) {
   return (
     <span
       aria-hidden="true"
@@ -52,7 +60,7 @@ function Avatar({ name, waId, active }: { name: string | null; waId: string; act
         active ? "bg-accent text-accent-ink" : "bg-panel-muted text-ink-muted"
       }`}
     >
-      {initials(name, waId)}
+      {initials(name, externalUserId)}
     </span>
   );
 }
@@ -117,12 +125,16 @@ function ConversationRow({
           active ? "bg-accent-soft" : "hover:bg-panel-muted"
         }`}
       >
-        <Avatar name={conversation.contact.name} waId={conversation.contact.waId} active={active} />
+        <Avatar
+          name={conversation.contact.name}
+          externalUserId={conversation.contact.externalUserId}
+          active={active}
+        />
 
         <span className="min-w-0 flex-1">
           <span className="flex items-baseline justify-between gap-2">
             <span className="truncate font-semibold text-ink">
-              {conversation.contact.name ?? conversation.contact.waId}
+              {conversation.contact.name ?? conversation.contact.externalUserId}
             </span>
             <span className="shrink-0 text-xs text-ink-faint">
               {stampLabel(conversation.lastMessageAt)}

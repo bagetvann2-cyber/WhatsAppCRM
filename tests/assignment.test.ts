@@ -174,13 +174,13 @@ test("назначить можно только сотрудника этого
 test("чужой диалог не назначается даже своим сотрудником", async () => {
   const stranger = await createTestOrg(strangerNumberId);
   const foreignContact = await prisma.contact.create({
-    data: { organizationId: stranger.id, waId: "77011110004" },
+    data: { organizationId: stranger.id, channelId: stranger.channelId, externalUserId: "77011110004" },
   });
   const foreign = await prisma.conversation.create({
     data: {
       organizationId: stranger.id,
       contactId: foreignContact.id,
-      phoneNumberId: strangerNumberId,
+      channelId: stranger.channelId,
     },
   });
 

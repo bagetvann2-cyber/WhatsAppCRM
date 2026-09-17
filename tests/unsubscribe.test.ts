@@ -12,6 +12,7 @@ import { createTestOrg, dropTestOrg } from "./helpers";
 
 const phoneNumberId = "PNID-UNSUB";
 let organizationId: string;
+let channelId: string;
 let marketingId: string;
 let utilityId: string;
 
@@ -27,7 +28,9 @@ beforeEach(async () => {
   sendMock.mockImplementation(async () => ({ wamid: `${phoneNumberId}.CAST.${++counter}` }));
 
   await dropTestOrg(phoneNumberId);
-  organizationId = (await createTestOrg(phoneNumberId)).id;
+  const testOrg = await createTestOrg(phoneNumberId);
+  organizationId = testOrg.id;
+  channelId = testOrg.channelId;
   // Здесь проверяется отписка, а не баланс: денег даём с запасом.
   await prisma.organization.update({ where: { id: organizationId }, data: { balance: 100000 } });
 
@@ -59,11 +62,14 @@ beforeEach(async () => {
   marketingId = marketing.id;
   utilityId = utility.id;
 
-  await prisma.contact.create({ data: { organizationId, waId: "77010000011", name: "Айгерим" } });
+  await prisma.contact.create({
+    data: { organizationId, channelId, externalUserId: "77010000011", name: "Айгерим" },
+  });
   await prisma.contact.create({
     data: {
       organizationId,
-      waId: "77010000012",
+      channelId,
+      externalUserId: "77010000012",
       name: "Ержан",
       unsubscribedAt: new Date(),
       unsubscribeSource: "написал сам",
@@ -114,7 +120,7 @@ test("сообщение «стоп» отписывает контакт", asyn
   ).toBe(true);
 
   const contact = await prisma.contact.findUniqueOrThrow({
-    where: { organizationId_waId: { organizationId, waId: "77010000013" } },
+    where: { channelId_externalUserId: { channelId, externalUserId: "77010000013" } },
   });
   expect(contact.unsubscribedAt).not.toBeNull();
   expect(contact.unsubscribeSource).toBe("написал сам");
@@ -149,7 +155,7 @@ test("реклама отписавшимся не уходит, а служеб
   const forMarketing = await selectRecipients(organizationId, {}, { marketing: true });
   const forUtility = await selectRecipients(organizationId, {}, { marketing: false });
 
-  expect(forMarketing.map((c) => c.waId)).toEqual(["77010000011"]);
+  expect(forMarketing.map((c) => c.externalUserId)).toEqual(["77010000011"]);
   expect(forUtility).toHaveLength(2);
 });
 
@@ -166,7 +172,7 @@ test("рекламная рассылка не берёт отписавшихс
   });
 
   expect(recipients).toHaveLength(1);
-  expect(recipients[0].contact.waId).toBe("77010000011");
+  expect(recipients[0].contact.externalUserId).toBe("77010000011");
 });
 
 test("служебная рассылка уходит и отписавшимся", async () => {
@@ -188,7 +194,7 @@ test("отписка между созданием и запуском проп�
   });
 
   const contact = await prisma.contact.findUniqueOrThrow({
-    where: { organizationId_waId: { organizationId, waId: "77010000011" } },
+    where: { channelId_externalUserId: { channelId, externalUserId: "77010000011" } },
   });
 
   await setUnsubscribed({
@@ -213,7 +219,7 @@ test("отписка между созданием и запуском проп�
 
 test("оператор возвращает контакт в рассылки", async () => {
   const contact = await prisma.contact.findUniqueOrThrow({
-    where: { organizationId_waId: { organizationId, waId: "77010000012" } },
+    where: { channelId_externalUserId: { channelId, externalUserId: "77010000012" } },
   });
 
   expect(await countUnsubscribed(organizationId)).toBe(1);
@@ -234,7 +240,7 @@ test("оператор возвращает контакт в рассылки",
 test("чужой контакт отписать нельзя", async () => {
   const stranger = await createTestOrg("PNID-UNSUB-2");
   const foreign = await prisma.contact.create({
-    data: { organizationId: stranger.id, waId: "77010000099" },
+    data: { organizationId: stranger.id, channelId: stranger.channelId, externalUserId: "77010000099" },
   });
 
   expect(

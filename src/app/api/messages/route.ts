@@ -6,6 +6,8 @@ import { storeOutgoingMedia } from "@/lib/media-store";
 import { currentUser } from "@/lib/session";
 import { sendTextMessage } from "@/lib/whatsapp/client";
 import { sendMediaMessage, uploadMedia } from "@/lib/whatsapp/media";
+import { whatsAppCredentials } from "@/lib/channels/whatsapp";
+import { isReplyWindowOpen } from "@/lib/conversation-window";
 
 type Outgoing =
   | { kind: "text"; text: string }
@@ -80,17 +82,14 @@ export async function POST(request: Request): Promise<Response> {
   // и ответ неотличим от несуществующего — чужие id не подтверждаются.
   const conversation = await prisma.conversation.findFirst({
     where: { id: parsed.conversationId, organizationId: me.organization.id },
-    include: { contact: true },
+    include: { contact: true, channel: true },
   });
 
   if (!conversation) {
     return Response.json({ error: "Диалог не найден" }, { status: 400 });
   }
 
-  const windowOpen =
-    conversation.windowExpiresAt !== null && conversation.windowExpiresAt.getTime() > Date.now();
-
-  if (!windowOpen) {
+  if (!isReplyWindowOpen(conversation.channel, conversation)) {
     return Response.json(
       { error: "Окно 24 часа закрыто. Свободный ответ недоступен, нужен одобренный шаблон." },
       { status: 422 },
@@ -100,15 +99,17 @@ export async function POST(request: Request): Promise<Response> {
   try {
     const now = new Date();
     const { message } = parsed;
+    const creds = whatsAppCredentials(conversation.channel);
     let sentWamid: string;
 
     if (message.kind === "text") {
-      const { wamid } = await sendTextMessage(conversation.contact.waId, message.text);
+      const { wamid } = await sendTextMessage(creds, conversation.contact.externalUserId, message.text);
       sentWamid = wamid;
 
       await prisma.message.create({
         data: {
-          wamid,
+          externalMessageId: wamid,
+          channelId: conversation.channel.id,
           conversationId: conversation.id,
           direction: "OUTBOUND",
           type: "text",
@@ -124,7 +125,7 @@ export async function POST(request: Request): Promise<Response> {
       // Сначала файл уезжает в Meta и получает id, и только потом уходит
       // сообщение: отправить можно лишь то, что она уже приняла.
       const { mediaId } = await uploadMedia(message.file);
-      const { wamid } = await sendMediaMessage(conversation.contact.waId, kind, mediaId, {
+      const { wamid } = await sendMediaMessage(conversation.contact.externalUserId, kind, mediaId, {
         caption: message.caption,
         filename: message.file.filename,
       });
@@ -132,7 +133,8 @@ export async function POST(request: Request): Promise<Response> {
 
       const stored = await prisma.message.create({
         data: {
-          wamid,
+          externalMessageId: wamid,
+          channelId: conversation.channel.id,
           conversationId: conversation.id,
           direction: "OUTBOUND",
           type: kind,

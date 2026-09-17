@@ -108,7 +108,7 @@ export default async function ContactsPage({ searchParams }: PageProps<"/contact
                   key={contact.id}
                   contact={{
                     id: contact.id,
-                    waId: contact.waId,
+                    externalUserId: contact.externalUserId,
                     name: contact.name,
                     note: contact.note,
                     tagIds: contact.tags.map((t) => t.tagId),

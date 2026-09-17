@@ -117,13 +117,13 @@ const MEDIA: Record<string, DemoMedia> = {
 };
 
 const CONTACTS = [
-  { waId: "77011234567", name: "Айгерим Сатыбалдиева" },
-  { waId: "77475556677", name: "Ержан Абдуллаев" },
-  { waId: "77017778899", name: "Дана Оспанова" },
-  { waId: "77762223344", name: "Мадина Ким" },
-  { waId: "77019991122", name: "Нурлан Жумабаев" },
-  { waId: "77473334455", name: "Асель Турсынова" },
-  { waId: "77015556677", name: "Тимур Ахметов" },
+  { externalUserId: "77011234567", name: "Айгерим Сатыбалдиева" },
+  { externalUserId: "77475556677", name: "Ержан Абдуллаев" },
+  { externalUserId: "77017778899", name: "Дана Оспанова" },
+  { externalUserId: "77762223344", name: "Мадина Ким" },
+  { externalUserId: "77019991122", name: "Нурлан Жумабаев" },
+  { externalUserId: "77473334455", name: "Асель Турсынова" },
+  { externalUserId: "77015556677", name: "Тимур Ахметов" },
 ];
 
 type Line = {
@@ -181,7 +181,7 @@ function minutesAgo(minutes: number): Date {
 async function clean(organizationId: string) {
   // Копии демо-вложений убираем с диска: строка в базе уйдёт, файл — нет.
   const withFiles = await prisma.message.findMany({
-    where: { wamid: { startsWith: DEMO_PREFIX }, mediaPath: { not: null } },
+    where: { externalMessageId: { startsWith: DEMO_PREFIX }, mediaPath: { not: null } },
     select: { mediaPath: true },
   });
 
@@ -192,16 +192,19 @@ async function clean(organizationId: string) {
   await prisma.balanceOperation.deleteMany({
     where: { organizationId, description: { contains: "(демо)" } },
   });
-  await prisma.message.deleteMany({ where: { wamid: { startsWith: DEMO_PREFIX } } });
+  await prisma.message.deleteMany({ where: { externalMessageId: { startsWith: DEMO_PREFIX } } });
   await prisma.broadcast.deleteMany({ where: { organizationId, name: { startsWith: "Демо:" } } });
   await prisma.messageTemplate.deleteMany({
     where: { organizationId, name: { in: ["zapis_podtverzhdenie", "profilaktika_napominanie", "akciya_implantaciya"] } },
   });
   await prisma.conversation.deleteMany({
-    where: { organizationId, contact: { waId: { in: CONTACTS.map((c) => c.waId) } } },
+    where: {
+      organizationId,
+      contact: { externalUserId: { in: CONTACTS.map((c) => c.externalUserId) } },
+    },
   });
   await prisma.contact.deleteMany({
-    where: { organizationId, waId: { in: CONTACTS.map((c) => c.waId) } },
+    where: { organizationId, externalUserId: { in: CONTACTS.map((c) => c.externalUserId) } },
   });
 }
 
@@ -225,8 +228,24 @@ async function main() {
   }
 
   const organizationId = membership.organizationId;
-  const number = await prisma.whatsappNumber.findFirst({ where: { organizationId } });
-  const phoneNumberId = number?.phoneNumberId ?? "demo-pnid";
+
+  // Демо всегда рисует WhatsApp-переписку. Если у компании уже есть настоящий
+  // канал — используем его; если нет (Embedded Signup ещё не проходили),
+  // заводим демо-канал: без него Conversation/Contact не создать, channelId обязателен.
+  const channel =
+    (await prisma.channel.findFirst({ where: { organizationId, type: "WHATSAPP" } })) ??
+    (await prisma.channel.upsert({
+      where: { type_externalId: { type: "WHATSAPP", externalId: "demo-pnid" } },
+      update: { organizationId },
+      create: {
+        organizationId,
+        type: "WHATSAPP",
+        connectionMethod: "WA_MANUAL",
+        name: "WhatsApp (демо)",
+        status: "ACTIVE",
+        externalId: "demo-pnid",
+      },
+    }));
 
   await clean(organizationId);
 
@@ -237,19 +256,24 @@ async function main() {
   }
 
   for (const contact of CONTACTS) {
-    const lines = DIALOGS[contact.waId] ?? [];
+    const lines = DIALOGS[contact.externalUserId] ?? [];
     const last = lines.at(-1);
     const lastInbound = [...lines].reverse().find((l) => !l.out);
 
     const created = await prisma.contact.create({
-      data: { organizationId, waId: contact.waId, name: contact.name },
+      data: {
+        organizationId,
+        channelId: channel.id,
+        externalUserId: contact.externalUserId,
+        name: contact.name,
+      },
     });
 
     const conversation = await prisma.conversation.create({
       data: {
         organizationId,
         contactId: created.id,
-        phoneNumberId,
+        channelId: channel.id,
         lastMessageAt: minutesAgo(last?.minutesAgo ?? 60),
         // Окно 24 часа отсчитывается от последнего сообщения клиента.
         windowExpiresAt: lastInbound
@@ -263,7 +287,8 @@ async function main() {
 
       const message = await prisma.message.create({
         data: {
-          wamid: `${DEMO_PREFIX}${contact.waId}.${index}`,
+          externalMessageId: `${DEMO_PREFIX}${contact.externalUserId}.${index}`,
+          channelId: channel.id,
           conversationId: conversation.id,
           direction: line.out ? ("OUTBOUND" as const) : ("INBOUND" as const),
           type: media?.type ?? "text",
@@ -272,7 +297,7 @@ async function main() {
           timestamp: minutesAgo(line.minutesAgo),
           ...(media
             ? {
-                mediaId: `${DEMO_PREFIX}media.${contact.waId}.${index}`,
+                mediaId: `${DEMO_PREFIX}media.${contact.externalUserId}.${index}`,
                 mimeType: media.mimeType,
                 filename: media.filename,
                 mediaSize: media.bytes.byteLength,

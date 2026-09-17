@@ -7,6 +7,7 @@ import { createTestOrg, dropTestOrg } from "./helpers";
 const phoneNumberId = "PNID-INGEST";
 const waId = "77019998877";
 let organizationId: string;
+let channelId: string;
 
 const base: IncomingMessage = {
   wamid: "wamid.INGEST.1",
@@ -21,7 +22,9 @@ const base: IncomingMessage = {
 
 beforeAll(async () => {
   await dropTestOrg(phoneNumberId);
-  organizationId = (await createTestOrg(phoneNumberId)).id;
+  const testOrg = await createTestOrg(phoneNumberId);
+  organizationId = testOrg.id;
+  channelId = testOrg.channelId;
 });
 
 afterEach(async () => {
@@ -40,11 +43,13 @@ test("создаёт контакт, диалог и сообщение в ну�
 
   expect(result).toMatchObject({ stored: true, created: true, organizationId });
 
-  const stored = await prisma.message.findUnique({ where: { wamid: base.wamid } });
+  const stored = await prisma.message.findUnique({
+    where: { channelId_externalMessageId: { channelId, externalMessageId: base.wamid } },
+  });
   expect(stored?.text).toBe("Первое сообщение");
 
   const contact = await prisma.contact.findUnique({
-    where: { organizationId_waId: { organizationId, waId } },
+    where: { channelId_externalUserId: { channelId, externalUserId: waId } },
   });
   expect(contact?.name).toBe("Айбек");
 });
@@ -53,7 +58,11 @@ test("сообщение на неизвестный номер не сохра�
   const result = await saveIncomingMessage({ ...base, phoneNumberId: "PNID-ЧУЖОЙ" });
 
   expect(result).toEqual({ stored: false, reason: "unknown-number" });
-  expect(await prisma.message.findUnique({ where: { wamid: base.wamid } })).toBeNull();
+  expect(
+    await prisma.message.findUnique({
+      where: { channelId_externalMessageId: { channelId, externalMessageId: base.wamid } },
+    }),
+  ).toBeNull();
 });
 
 test("повторная доставка того же wamid не создаёт дубль", async () => {
@@ -61,7 +70,7 @@ test("повторная доставка того же wamid не создаё�
   const second = await saveIncomingMessage(base);
 
   expect(second).toMatchObject({ stored: true, created: false });
-  expect(await prisma.message.count({ where: { wamid: base.wamid } })).toBe(1);
+  expect(await prisma.message.count({ where: { channelId, externalMessageId: base.wamid } })).toBe(1);
 });
 
 test("второе сообщение попадает в тот же диалог и двигает окно 24 часа", async () => {
@@ -94,7 +103,7 @@ test("одинаковый номер клиента в разных компа�
     phoneNumberId: "PNID-INGEST-2",
   });
 
-  const contacts = await prisma.contact.findMany({ where: { waId } });
+  const contacts = await prisma.contact.findMany({ where: { externalUserId: waId } });
   expect(contacts).toHaveLength(2);
   expect(new Set(contacts.map((c) => c.organizationId))).toEqual(
     new Set([organizationId, other.id]),
@@ -111,7 +120,9 @@ test("статус доставки записывается в сообщени
     timestamp: new Date("2026-08-16T09:00:05Z"),
   });
 
-  const stored = await prisma.message.findUnique({ where: { wamid: base.wamid } });
+  const stored = await prisma.message.findUnique({
+    where: { channelId_externalMessageId: { channelId, externalMessageId: base.wamid } },
+  });
   expect(stored?.status).toBe("delivered");
 });
 

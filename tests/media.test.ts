@@ -220,7 +220,7 @@ test("вложение чужой компании не отдаётся, даж
     expect(await findMediaMessage(stranger.id, messageId)).toBeNull();
 
     const owner = await prisma.conversation.findFirstOrThrow({
-      where: { phoneNumberId },
+      where: { channel: { externalId: phoneNumberId } },
       select: { organizationId: true },
     });
     expect(await findMediaMessage(owner.organizationId, messageId)).toMatchObject({
