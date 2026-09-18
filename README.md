@@ -47,6 +47,8 @@ npm test
 | `MEDIA_DIR` | необязательно, куда класть копии вложений; по умолчанию `storage/media` |
 | `MEDIA_MAX_MB` | необязательно, потолок размера файла; по умолчанию 32 |
 | `ANTHROPIC_API_KEY` | ключ Claude для ИИ-помощника |
+| `OPENAI_API_KEY` | ключ ChatGPT (platform.openai.com/api-keys) для ИИ-помощника на нашем счёте |
+| `GEMINI_API_KEY` | ключ Gemini (aistudio.google.com/apikey); нужен ключ платного проекта: на бесплатном уровне Google может использовать переписку |
 | `RESEND_API_KEY` | ключ Resend для писем подтверждения почты; без него регистрация не сработает |
 | `EMAIL_FROM` | необязательно, адрес отправителя; по умолчанию `onboarding@resend.dev` (шлёт только на почту аккаунта Resend) |
 
