@@ -9,7 +9,7 @@ test("Haiku 4.5 не поддерживает effort, Sonnet 5 и Opus 5 под�
 });
 
 test("модель по умолчанию — первая платформенная; null в базе означает её", () => {
-  expect(defaultModel("ANTHROPIC")).toBe("claude-haiku-4-5");
+  expect(defaultModel("ANTHROPIC")).toBe("claude-sonnet-5");
   expect(defaultModel("OPENAI")).toBe("gpt-5.6-luna");
   expect(defaultModel("OPENROUTER")).toBeNull();
   expect(resolveModel("GEMINI", null)).toBe("gemini-3.1-flash-lite");

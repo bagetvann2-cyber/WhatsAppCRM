@@ -33,8 +33,8 @@ export const PROVIDER_INFO: Record<ProviderId, ProviderInfo> = {
 // подтверждает `npm run ai-bench`. Первая «платформенная» модель провайдера — модель по умолчанию.
 export const MODELS: Record<ProviderId, ModelInfo[]> = {
   ANTHROPIC: [
-    { id: "claude-haiku-4-5", label: "Claude Haiku 4.5 — самый дешёвый", hint: "Для простых сценариев: часы работы, адрес, наличие.", supportsEffort: false, platform: true, priceUsd: { input: 1, cached: 0.1, output: 5 } },
-    { id: "claude-sonnet-5", label: "Claude Sonnet 5 — баланс", hint: "Заметно дешевле Opus при почти том же качестве.", supportsEffort: true, platform: true, priceUsd: { input: 2, cached: 0.2, output: 10 } },
+    { id: "claude-sonnet-5", label: "Claude Sonnet 5 — баланс", hint: "Модель по умолчанию: в замере вдвое дешевле Haiku, потому что кэширует анкету.", supportsEffort: true, platform: true, priceUsd: { input: 2, cached: 0.2, output: 10 } },
+    { id: "claude-haiku-4-5", label: "Claude Haiku 4.5 — самый дешёвый", hint: "Кэш анкеты у неё включается только от 4096 токенов, поэтому чаще выходит дороже Sonnet.", supportsEffort: false, platform: true, priceUsd: { input: 1, cached: 0.1, output: 5 } },
     { id: "claude-opus-5", label: "Claude Opus 5 — самый способный", hint: "Дороже, но лучше держит сложные разговоры о ценах и условиях.", supportsEffort: true, platform: false, priceUsd: { input: 5, cached: 0.5, output: 25 } },
   ],
   OPENAI: [
