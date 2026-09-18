@@ -189,3 +189,24 @@ test("баннер на своём ключе: пакет не считаетс�
   expect(assistantBanner({ ...base, keyError: { code: "quota", providerLabel: "ChatGPT" } })?.text).toContain("закончились деньги");
   expect(assistantBanner({ ...base, keyError: { code: "model", providerLabel: "Gemini" } })?.text).toContain("модель больше недоступна");
 });
+
+test("выбор нейросети на тарифе: нужен наш ключ провайдера, OpenRouter и своя модель недоступны", async () => {
+  const { saveProviderAction } = await import("@/app/(app)/ai-bot/actions");
+
+  vi.stubEnv("OPENAI_API_KEY", "");
+  expect(await saveProviderAction(null, form({ provider: "OPENAI" }))).toMatchObject({ error: expect.stringContaining("недоступна") });
+  expect(await saveProviderAction(null, form({ provider: "OPENROUTER" }))).toMatchObject({ error: expect.stringContaining("недоступна") });
+
+  vi.stubEnv("OPENAI_API_KEY", "sk-platform");
+  expect(await saveProviderAction(null, form({ provider: "OPENAI" }))).toMatchObject({ ok: expect.stringContaining("ChatGPT") });
+  expect(await botRow()).toMatchObject({ provider: "OPENAI", model: null });
+  expect((await getBot(organizationId)).model).toBe("gpt-5.6-luna");
+
+  // Чужой id модели из формы на тарифе превращается в модель по умолчанию.
+  await saveBot(organizationId, { enabled: true, model: "claude-haiku-4-5", companyProfile: "Анкета", rules: null });
+  expect((await botRow()).model).toBeNull();
+
+  await withKey();
+  expect(await saveProviderAction(null, form({ provider: "OPENAI" }))).toMatchObject({ error: expect.stringContaining("отключите") });
+  vi.unstubAllEnvs();
+});

@@ -16,7 +16,7 @@ import { decrypt, encrypt } from "@/lib/crypto";
 import { getSubscription, isSubscriptionActive } from "@/lib/billing-store";
 import { isReplyWindowOpen } from "@/lib/conversation-window";
 import { sendChannelText } from "@/lib/channels";
-import { PROVIDER_INFO, defaultModel, resolveModel } from "@/lib/llm/catalog";
+import { MODELS, PROVIDER_INFO, defaultModel, resolveModel } from "@/lib/llm/catalog";
 import { LlmError } from "@/lib/llm/errors";
 import type { ProviderId } from "@/lib/llm/types";
 import { getOrderFields, upsertDraftOrderFields } from "@/lib/orders-store";
@@ -176,7 +176,10 @@ export async function saveBot(organizationId: string, settings: BotEdit): Promis
     enabled: settings.enabled,
     // Модель на своём ключе задаёт действие сохранения ключа, эта форма её не трогает.
     // На нашем ключе модель по умолчанию храним как null: смена победителя замера не требует миграции.
-    ...(current?.apiKeyEncrypted ? {} : { model: settings.model === defaultModel(provider) ? null : settings.model }),
+    ...(current?.apiKeyEncrypted
+      ? {}
+      // На тарифе разрешены только проверенные модели провайдера; чужой id из формы превращается в модель по умолчанию.
+      : { model: MODELS[provider].some((m) => m.platform && m.id === settings.model) && settings.model !== defaultModel(provider) ? settings.model : null }),
     companyProfile: settings.companyProfile.trim(),
     rules: settings.rules?.trim() || null,
     stubText: settings.stubText?.trim() || null,

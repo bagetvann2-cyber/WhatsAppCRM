@@ -207,7 +207,7 @@ export function estimateCost(answers: number, model: string): number {
 /** Коды ошибок ключа клиента, которые держатся в AiBot.apiKeyError, пока ключ не заработает. */
 export const KEY_ERROR_CODES = ["auth", "quota", "model", "decrypt"] as const;
 
-function keyErrorText(error: { code: string; providerLabel: string }): string {
+export function keyErrorText(error: { code: string; providerLabel: string }): string {
   switch (error.code) {
     case "decrypt":
       return "Нужно заново ввести ваш API-ключ.";

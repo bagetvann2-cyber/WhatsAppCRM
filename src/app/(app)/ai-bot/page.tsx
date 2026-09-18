@@ -1,5 +1,8 @@
 import { redirect } from "next/navigation";
 import { AiBotForm } from "@/components/AiBotForm";
+import { AiProviderCard } from "@/components/AiProviderCard";
+import { env } from "@/lib/env";
+import { PROVIDERS } from "@/lib/llm/types";
 import { AlertIcon } from "@/components/icons";
 import { Empty, Group, GroupTitle, PageHead } from "@/components/ledger";
 import { REASON_LABEL } from "@/lib/ai-bot";
@@ -36,6 +39,8 @@ export default async function AiBotPage() {
       </PageHead>
 
       <AiBotForm
+        provider={settings.provider}
+        usesOwnKey={settings.usesOwnKey === true}
         initial={{
           enabled: settings.enabled,
           model: settings.model,
@@ -52,6 +57,22 @@ export default async function AiBotPage() {
           canGenerate: settings.subscriptionActive,
         }}
       />
+
+      <div className="mt-6">
+        <AiProviderCard
+          provider={settings.provider}
+          model={settings.model}
+          ownKey={
+            settings.ownKey && {
+              provider: settings.ownKey.provider,
+              hint: settings.ownKey.hint,
+              checkedAt: settings.ownKey.checkedAt?.toLocaleDateString("ru-RU", { day: "2-digit", month: "2-digit" }) ?? null,
+              error: settings.ownKey.error,
+            }
+          }
+          platformProviders={PROVIDERS.filter((p) => !PROVIDER_INFO[p].ownKeyOnly && env.platformKey(p))}
+        />
+      </div>
 
       <Group className="mt-12">
         <GroupTitle>

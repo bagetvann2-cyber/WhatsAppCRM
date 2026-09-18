@@ -15,6 +15,7 @@ import {
 } from "@/lib/profile-generator";
 import { LlmError } from "@/lib/llm";
 import { PROVIDER_INFO, defaultModel } from "@/lib/llm/catalog";
+import { env } from "@/lib/env";
 import { PROVIDERS, type ProviderId } from "@/lib/llm/types";
 import { mismatchMessage, normalizeKey, probeKey } from "@/lib/llm/verify-key";
 import { prisma } from "@/lib/db";
@@ -305,4 +306,31 @@ export async function recheckApiKeyAction(): Promise<KeyState> {
   await setKeyError(organization.id, null, true);
   revalidatePath("/ai-bot");
   return { ok: "Ключ работает." };
+}
+
+/** Выбор нейросети на тарифе (без своего ключа): только та, для которой у платформы есть ключ. */
+export async function saveProviderAction(_prev: KeyState, data: FormData): Promise<KeyState> {
+  const { organization, role } = await requireUser();
+  if (!canManageTeam(role)) {
+    return { error: "Выбирать нейросеть может владелец или администратор." };
+  }
+
+  const provider = text(data, "provider") as ProviderId;
+  if (!PROVIDERS.includes(provider) || PROVIDER_INFO[provider].ownKeyOnly || !env.platformKey(provider)) {
+    return { error: "Эта нейросеть на тарифе пока недоступна: подключите свой ключ." };
+  }
+
+  const settings = await getBot(organization.id);
+  if (settings.usesOwnKey) {
+    return { error: "Сначала отключите свой ключ." };
+  }
+
+  // Модель на тарифе одна на провайдера (по умолчанию из каталога): null в базе.
+  await prisma.aiBot.upsert({
+    where: { organizationId: organization.id },
+    update: { provider, model: null },
+    create: { organizationId: organization.id, companyProfile: "", provider },
+  });
+  revalidatePath("/ai-bot");
+  return { ok: `Помощник отвечает через ${PROVIDER_INFO[provider].label}.` };
 }

@@ -6,11 +6,10 @@ import { AlertIcon, BoltIcon } from "@/components/icons";
 import { generateProfileAction, saveBotAction, testBotAction, type FormState, type TestState } from "@/app/(app)/ai-bot/actions";
 import { DEFAULT_STUB, DEFAULT_STUB_KZ, MAX_STUB_CHARS, answersLeft } from "@/lib/ai-bot";
 import { MODELS } from "@/lib/llm/catalog";
+import type { ProviderId } from "@/lib/llm/types";
 import { MAX_DESCRIPTION_CHARS, MIN_DESCRIPTION_CHARS, type GeneratedProfile } from "@/lib/profile-generator";
 import { PLACEHOLDER_PATTERN, PROFILE_PRESETS, findPreset } from "@/lib/profile-presets";
 
-// На нашем ключе доступны только «платформенные» модели каталога.
-const PLATFORM_MODELS = MODELS.ANTHROPIC.filter((model) => model.platform);
 
 const INPUT =
   "w-full rounded-lg border border-line bg-panel-muted px-3 py-2 text-sm text-ink transition-colors placeholder:text-ink-faint hover:border-line-strong focus:border-accent focus:bg-panel";
@@ -27,7 +26,11 @@ const PROFILE_PLACEHOLDER = `Стоматология «Улыбка», Алма
 
 export function AiBotForm({
   initial,
+  provider,
+  usesOwnKey,
 }: {
+  provider: ProviderId;
+  usesOwnKey: boolean;
   initial: {
     enabled: boolean;
     model: string;
@@ -123,7 +126,9 @@ export function AiBotForm({
     textarea?.setSelectionRange(target.start, target.end);
   }
 
-  const modelHint = PLATFORM_MODELS.find((m) => m.id === model)?.hint;
+  // На нашем ключе доступны только «платформенные» модели выбранной нейросети.
+  const platformModels = MODELS[provider].filter((m) => m.platform);
+  const modelHint = platformModels.find((m) => m.id === model)?.hint;
   const left = answersLeft({ answersLimit: initial.answersLimit, answersUsed: initial.answersUsed });
 
   return (
@@ -278,25 +283,31 @@ export function AiBotForm({
           />
         </label>
 
-        <label className="flex flex-col gap-1.5">
-          <span className="text-sm font-medium text-ink">Модель</span>
-          <select
-            name="model"
-            value={model}
-            onChange={(e) => setModel(e.target.value)}
-            className={INPUT}
-          >
-            {PLATFORM_MODELS.map((m) => (
-              <option key={m.id} value={m.id}>
-                {m.label}
-              </option>
-            ))}
-          </select>
-          <span className="text-xs text-ink-faint">{modelHint}</span>
-        </label>
+        {/* На своём ключе модель задаётся в блоке «Нейросеть», эта форма её не меняет. */}
+        {!usesOwnKey && platformModels.length > 1 && (
+          <label className="flex flex-col gap-1.5">
+            <span className="text-sm font-medium text-ink">Модель</span>
+            <select
+              name="model"
+              value={model}
+              onChange={(e) => setModel(e.target.value)}
+              className={INPUT}
+            >
+              {platformModels.map((m) => (
+                <option key={m.id} value={m.id}>
+                  {m.label}
+                </option>
+              ))}
+            </select>
+            <span className="text-xs text-ink-faint">{modelHint}</span>
+          </label>
+        )}
+        {!usesOwnKey && platformModels.length === 1 && <input type="hidden" name="model" value={platformModels[0].id} />}
 
         <div className="rounded-lg bg-accent-soft px-3 py-2.5 text-sm text-accent">
-          {initial.answersLimit === 0 ? (
+          {usesOwnKey ? (
+            <span>Помощник отвечает на вашем ключе: пакет ответов по тарифу не тратится.</span>
+          ) : initial.answersLimit === 0 ? (
             <span>В вашем тарифе ИИ-помощника нет — он входит в «Бизнес».</span>
           ) : (
             <span>
