@@ -40,7 +40,9 @@
   }
 }
 
-.page a {
+/* :where() держит специфичность на нуле — иначе этот сброс перебивает
+   color у .btnPrimary/.btnGhost (класс+тег специфичнее одного класса). */
+:where(.page) a {
   color: inherit;
   text-decoration: none;
 }

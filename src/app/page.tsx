@@ -6,9 +6,9 @@ import { currentUser } from "@/lib/session";
 export const dynamic = "force-dynamic";
 
 export const metadata: Metadata = {
-  title: "WhatsAppCRM — ИИ-бот вместо ручной переписки",
+  title: "WhatsAppCRM: CRM с ИИ-ботом вместо ручной переписки",
   description:
-    "ИИ-бот отвечает клиентам в WhatsApp и Telegram и собирает заказы в таблицу — пока вы спите. Работает уже сейчас, не концепт.",
+    "Наша CRM отвечает клиентам в WhatsApp и Telegram и собирает нужные данные в таблицу, пока вы спите. Работает уже сейчас, не концепт.",
 };
 
 /** Вошедшего сразу ведём в инбокс — витрина не для него. */

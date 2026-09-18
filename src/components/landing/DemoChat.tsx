@@ -6,11 +6,12 @@ import styles from "./landing.module.css";
 type Bubble = { id: number; kind: "in" | "out"; text: string };
 
 const RULES: { test: RegExp; reply: string; order?: boolean }[] = [
-  { test: /стоит|цена|сколько/i, reply: "Зависит от заказа — уточните, что именно интересует, и я посчитаю." },
-  { test: /доставк|привезти|привезёте/i, reply: "Доставим сегодня до 21:00 или завтра с утра — что удобнее?" },
-  { test: /когда|время/i, reply: "Обычно готовим за 30–40 минут, доставка ещё 20–30." },
-  { test: /адрес|улица|ул\./i, reply: "Записала адрес — собираю заявку.", order: true },
-  { test: /.+/, reply: "Поняла! Уточните адрес и что хотите заказать — соберу заявку." },
+  { test: /стоит|цена|сколько/i, reply: "Зависит от деталей, уточните и я посчитаю." },
+  { test: /доставк|привезти|привезёте/i, reply: "Доставим сегодня до 21:00 или завтра с утра, что удобнее?" },
+  { test: /когда|время/i, reply: "Обычно занимает 30–40 минут." },
+  { test: /документ|чек|квитанц|пошлин|деклараци/i, reply: "Приняла, данные уже в таблице.", order: true },
+  { test: /адрес|улица|ул\./i, reply: "Записала адрес, добавляю в таблицу.", order: true },
+  { test: /.+/, reply: "Поняла, уточните детали и я всё запишу." },
 ];
 
 /**
@@ -20,10 +21,10 @@ const RULES: { test: RegExp; reply: string; order?: boolean }[] = [
  */
 export function DemoChat() {
   const [bubbles, setBubbles] = useState<Bubble[]>([
-    { id: 1, kind: "in", text: "Здравствуйте! Можно заказать доставку на завтра к 19:00?" },
-    { id: 2, kind: "out", text: "Конечно! Уточните адрес и что хотите заказать — соберу заявку." },
+    { id: 1, kind: "in", text: "Добрый вечер, оплатил гос. пошлину за ввоз посылки из США. Чек и декларация во вложении." },
+    { id: 2, kind: "out", text: "Приняла, всё зафиксировала. Данные уже в таблице." },
   ]);
-  const [orderAdded, setOrderAdded] = useState(false);
+  const [orderAdded, setOrderAdded] = useState(true);
   const [typing, setTyping] = useState(false);
   const [value, setValue] = useState("");
   const [showHint, setShowHint] = useState(true);
@@ -91,7 +92,7 @@ export function DemoChat() {
         )}
         {orderAdded && (
           <div className={styles.orderCard}>
-            <span className="k">DRAFT →</span> заявка добавлена в таблицу заказов
+            <span className="k">DRAFT →</span> данные добавлены в таблицу
           </div>
         )}
       </div>
