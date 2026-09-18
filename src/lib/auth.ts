@@ -167,12 +167,11 @@ export async function userFromSessionToken(token: string): Promise<CurrentUser |
     return null;
   }
 
-  const membership = session.user.memberships[0];
+  const { memberships, ...user } = session.user;
+  const membership = memberships[0];
   if (!membership) {
     return null;
   }
-
-  const { memberships: _memberships, ...user } = session.user;
 
   return {
     user: user as User,
