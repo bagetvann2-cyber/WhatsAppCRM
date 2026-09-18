@@ -3,6 +3,8 @@ import { askBot, type ChatTurn } from "@/lib/ai-client";
 import { alertPlatformError } from "@/lib/alerts";
 import {
   MAX_HISTORY_MESSAGE_CHARS,
+  assistantBanner,
+  type AssistantBanner,
   OUTCOMES,
   pickStub,
   shouldBotReply,
@@ -120,6 +122,23 @@ export async function refundAnswer(organizationId: string, periodStart: Date): P
   await prisma.aiBot.updateMany({
     where: { organizationId, answersUsed: { gt: 0 }, answersPeriodStart: periodStart },
     data: { answersUsed: { decrement: 1 } },
+  });
+}
+
+/** Полоса состояния помощника для владельца и админа; `null` — всё в порядке или бот выключен. */
+export async function getAssistantBanner(organizationId: string): Promise<AssistantBanner | null> {
+  const [bot, channels, last] = await Promise.all([
+    getBot(organizationId),
+    prisma.channel.count({ where: { organizationId, status: "ACTIVE" } }),
+    prisma.aiReply.findFirst({ where: { organizationId }, orderBy: { createdAt: "desc" }, select: { outcome: true } }),
+  ]);
+
+  return assistantBanner({
+    settings: bot,
+    subscriptionActive: bot.subscriptionActive,
+    hasChannel: channels > 0,
+    lastOutcome: last?.outcome ?? null,
+    resetsAt: bot.periodResetsAt,
   });
 }
 
@@ -335,6 +354,7 @@ export async function runAiBot(input: {
       rules: settings.rules,
       history,
       orderFields,
+      org: input.organizationId,
     });
   } catch (error) {
     // Запроса не было или он не дал ответа: занятый ответ возвращается в пакет.

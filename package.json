@@ -13,7 +13,8 @@
     "demo": "dotenv -e .env.local -- tsx scripts/demo-data.ts",
     "worker": "dotenv -e .env.local -- tsx scripts/worker.ts",
     "postinstall": "prisma generate",
-    "ai-bench": "dotenv -e .env.local -- tsx scripts/ai-bench.ts"
+    "ai-bench": "dotenv -e .env.local -- tsx scripts/ai-bench.ts",
+    "ai-report": "dotenv -e .env.local -- tsx scripts/ai-report.ts"
   },
   "dependencies": {
     "@anthropic-ai/sdk": "^0.117.1",

@@ -2,7 +2,9 @@ import { redirect } from "next/navigation";
 import { AiBotForm } from "@/components/AiBotForm";
 import { AlertIcon } from "@/components/icons";
 import { Empty, Group, GroupTitle, PageHead } from "@/components/ledger";
+import { REASON_LABEL } from "@/lib/ai-bot";
 import { getBot, listReplies } from "@/lib/ai-bot-store";
+import { PROVIDER_INFO, findModel } from "@/lib/llm/catalog";
 import { requireUser } from "@/lib/session";
 import { canManageTeam } from "@/lib/team";
 
@@ -60,27 +62,36 @@ export default async function AiBotPage() {
 
                 {reply.answer && (
                   <p className="mt-2 text-sm whitespace-pre-wrap text-ink">
-                    <span className="text-ink-faint">Помощник:</span> {reply.answer}
+                    <span className="text-ink-faint">{reply.stub ? "Заглушка:" : "Помощник:"}</span> {reply.answer}
                   </p>
                 )}
 
-                {reply.handoff && (
+                {reply.stub && (
+                  <p className="mt-2 flex items-start gap-2 rounded-lg bg-warn-soft px-3 py-2 text-sm text-warn">
+                    <AlertIcon className="mt-0.5 size-4 shrink-0" />
+                    Отправлена заглушка: {REASON_LABEL[reply.outcome ?? ""] ?? "помощник не смог ответить"}
+                  </p>
+                )}
+
+                {reply.handoff && !reply.stub && (
                   <p className="mt-2 flex items-start gap-2 rounded-lg bg-warn-soft px-3 py-2 text-sm text-warn">
                     <AlertIcon className="mt-0.5 size-4 shrink-0" />
                     Передал оператору: {reply.handoffReason ?? "без пояснения"}
                   </p>
                 )}
 
-                {reply.error && (
+                {reply.error && !reply.stub && (
                   <p className="mt-2 flex items-start gap-2 rounded-lg bg-danger-soft px-3 py-2 text-sm text-danger">
                     <AlertIcon className="mt-0.5 size-4 shrink-0" />
-                    Ошибка: {reply.error}
+                    {REASON_LABEL[reply.outcome ?? ""] ?? "Ошибка"}: {reply.error}
                   </p>
                 )}
 
                 <p className="mt-2 text-xs text-ink-faint tabular-nums">
-                  {reply.createdAt.toLocaleString("ru-RU")} · токенов: вход {reply.inputTokens}, из
-                  кэша {reply.cachedTokens}, ответ {reply.outputTokens}
+                  {reply.createdAt.toLocaleString("ru-RU")}
+                  {reply.provider && reply.model && (
+                    <> · {findModel(reply.provider, reply.model)?.label ?? `${PROVIDER_INFO[reply.provider].label} ${reply.model}`}</>
+                  )}
                 </p>
               </li>
             ))}

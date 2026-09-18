@@ -98,6 +98,7 @@ export async function testBotAction(_prev: TestState, data: FormData): Promise<T
       companyProfile: settings.companyProfile,
       rules: settings.rules,
       history: [{ role: "user", text: question }],
+      org: organization.id,
     });
     await finishUsage(usageId, { inputTokens: result.inputTokens + result.cachedTokens, outputTokens: result.outputTokens });
 

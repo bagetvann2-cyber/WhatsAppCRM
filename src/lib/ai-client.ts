@@ -83,6 +83,8 @@ export async function askBot(input: {
   provider?: ProviderId;
   /** Ключ клиента. Без него берём ключ платформы. */
   apiKey?: string;
+  /** Организация — только для строки `llm_call` в логе. */
+  org?: string;
 }): Promise<BotAnswer> {
   const provider = input.provider ?? "ANTHROPIC";
   const apiKey = input.apiKey ?? env.platformKey(provider);
@@ -100,7 +102,7 @@ export async function askBot(input: {
       // Модель сохранила заказ и промолчала: клиенту всё равно нужен ответ.
       followUp: { ack: "Сохранено.", skipIfCalled: [HANDOFF_TOOL.name] },
     },
-    { provider, apiKey, ownKey: input.apiKey !== undefined },
+    { provider, apiKey, ownKey: input.apiKey !== undefined, org: input.org },
   );
 
   let handoff = false;

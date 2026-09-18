@@ -201,3 +201,59 @@ export function answersLeft(settings: Pick<BotSettings, "answersLimit" | "answer
 export function estimateCost(answers: number, model: string): number {
   return Math.round(answers * (COST_PER_ANSWER[model] ?? 0));
 }
+
+export type AssistantBanner = {
+  text: string;
+  action?: { label: string; href: string };
+  /** error: клиентам отвечает заглушка или тишина; warn: ещё отвечает, но скоро перестанет. */
+  tone: "error" | "warn";
+};
+
+/** Порог, с которого владельцу пора смотреть на пакет: 80% использовано. */
+export const QUOTA_WARN_SHARE = 0.8;
+
+/**
+ * Что показать владельцу и админу в шапке кабинета. Только когда бот включён: у выключенного
+ * молчание — выбор, а не поломка. Причина из состояния (пакет, подписка, канал) главнее причины
+ * из последнего ответа: она точнее и не зависит от того, писал ли кто-то боту сегодня.
+ */
+export function assistantBanner(input: {
+  settings: BotSettings;
+  subscriptionActive: boolean;
+  hasChannel: boolean;
+  /** Исход последней записи журнала: сбой провайдера держится, пока следующий ответ его не сотрёт. */
+  lastOutcome: string | null;
+  resetsAt: Date;
+}): AssistantBanner | null {
+  const { settings } = input;
+  if (!settings.enabled || !settings.companyProfile.trim()) {
+    return null;
+  }
+
+  if (!input.hasChannel) {
+    return { text: "Нет подключённого канала: помощнику некому отвечать.", action: { label: "Подключить", href: "/channels" }, tone: "error" };
+  }
+  if (!input.subscriptionActive) {
+    return { text: OUTCOMES.subscription.banner!, action: OUTCOMES.subscription.action, tone: "error" };
+  }
+  if (settings.answersUsed >= settings.answersLimit) {
+    return { text: OUTCOMES.quota.banner!, action: OUTCOMES.quota.action, tone: "error" };
+  }
+
+  // Пакет и подписка уже проверены по состоянию: их старый исход в журнале баннер не держит.
+  const held = input.lastOutcome?.startsWith("llm-") ? OUTCOMES[input.lastOutcome as BotOutcome] : undefined;
+  if (held?.banner) {
+    return { text: held.banner, action: held.action, tone: "error" };
+  }
+
+  if (settings.answersUsed >= settings.answersLimit * QUOTA_WARN_SHARE) {
+    const date = input.resetsAt.toLocaleDateString("ru-RU", { day: "2-digit", month: "2-digit" });
+    return {
+      text: `Осталось ответов: ${answersLeft(settings)} из ${settings.answersLimit}, пакет обновится ${date}.`,
+      action: { label: "Тарифы", href: "/billing" },
+      tone: "warn",
+    };
+  }
+
+  return null;
+}
