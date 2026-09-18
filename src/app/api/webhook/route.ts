@@ -1,15 +1,8 @@
-import { prisma } from "@/lib/db";
 import { env } from "@/lib/env";
-import {
-  handleUnsubscribeMessage,
-  UNSUBSCRIBE_CONFIRMATION,
-} from "@/lib/unsubscribe";
-import { sendTextMessage } from "@/lib/whatsapp/client";
-import { runAiBot } from "@/lib/ai-bot-store";
-import { runAutomation } from "@/lib/automation-store";
 import { messageEvents } from "@/lib/events";
 import { applyStatusUpdate, saveIncomingMessage } from "@/lib/ingest";
-import { ensureMediaFile } from "@/lib/media-store";
+import { notifyConversationUpdate } from "@/lib/notify";
+import { enqueueProcessMessage } from "@/lib/queue";
 import { isValidSignature } from "@/lib/signature";
 import { applyTemplateUpdate } from "@/lib/templates-store";
 import { parseWebhook } from "@/lib/whatsapp/parse";
@@ -52,81 +45,47 @@ export async function POST(request: Request): Promise<Response> {
   }
 
   for (const message of messages) {
-    const result = await saveIncomingMessage(message);
+    const result = await saveIncomingMessage({
+      channelType: "WHATSAPP",
+      channelExternalId: message.phoneNumberId,
+      externalMessageId: message.wamid,
+      from: message.from,
+      profileName: message.profileName,
+      type: message.type,
+      text: message.text,
+      media: message.media,
+      timestamp: message.timestamp,
+    });
     if (!result.stored || !result.created) {
       continue;
     }
 
     messageEvents.emit("update", { conversationId: result.conversationId });
 
-    // Копию файла забираем сразу: у Meta он живёт 30 дней, а переписка дольше.
-    // Не получилось — не беда, вложение докачается при первом открытии.
-    if (message.media) {
-      await ensureMediaFile(result.messageId);
-      messageEvents.emit("update", { conversationId: result.conversationId });
-    }
-
-    // Отписка идёт первой и глушит остальных: на «стоп» клиент должен
-    // получить один понятный ответ, а не приветствие с рекламой следом.
-    const unsubscribed = await handleUnsubscribeMessage({
-      organizationId: result.organizationId,
+    // Вложение, отписка, автоответ и ИИ-бот могут дёргать внешние API
+    // (WhatsApp, Claude) — это не должно задерживать ответ Meta на вебхук,
+    // поэтому обработка уходит воркеру через очередь (src/lib/inbound-pipeline.ts).
+    await enqueueProcessMessage({
+      messageId: result.messageId,
       conversationId: result.conversationId,
+      organizationId: result.organizationId,
+      channelId: result.channelId,
+      to: message.from,
       text: message.text,
+      hasMedia: Boolean(message.media),
     });
-
-    if (unsubscribed) {
-      try {
-        const { wamid } = await sendTextMessage(message.from, UNSUBSCRIBE_CONFIRMATION);
-        await prisma.message.create({
-          data: {
-            wamid,
-            conversationId: result.conversationId,
-            direction: "OUTBOUND",
-            type: "text",
-            text: UNSUBSCRIBE_CONFIRMATION,
-            status: "sent",
-            timestamp: new Date(),
-          },
-        });
-      } catch {
-        // Подтверждение не ушло — сама отписка уже сохранена, это главное.
-      }
-
-      messageEvents.emit("update", { conversationId: result.conversationId });
-      continue;
-    }
-
-    // Сначала автоответы: приветствие и «мы не работаем» — простые и предсказуемые.
-    // ИИ-помощник подключается только если они промолчали, иначе клиент
-    // получит два ответа подряд на одно сообщение.
-    const reply = await runAutomation({
-      organizationId: result.organizationId,
-      conversationId: result.conversationId,
-      waId: message.from,
-    });
-
-    if (reply) {
-      messageEvents.emit("update", { conversationId: result.conversationId });
-      continue;
-    }
-
-    const bot = await runAiBot({
-      organizationId: result.organizationId,
-      conversationId: result.conversationId,
-      waId: message.from,
-    });
-
-    if (bot.status === "answered" || bot.status === "handoff") {
-      messageEvents.emit("update", { conversationId: result.conversationId });
-    }
   }
 
   for (const status of statuses) {
-    await applyStatusUpdate(status);
+    await applyStatusUpdate({
+      externalMessageId: status.wamid,
+      status: status.status,
+      timestamp: status.timestamp,
+    });
   }
 
   if (statuses.length > 0) {
-    messageEvents.emit("update", { conversationId: null });
+    await notifyConversationUpdate(null);
   }
 
   return new Response("OK", { status: 200 });

@@ -200,6 +200,28 @@ export function LogoutIcon(props: SVGProps<SVGSVGElement>) {
   );
 }
 
+export function ChannelIcon(props: SVGProps<SVGSVGElement>) {
+  return (
+    <Icon {...props}>
+      <rect x="4" y="4" width="7" height="7" rx="1.5" />
+      <rect x="13" y="13" width="7" height="7" rx="1.5" />
+      <path d="M10.5 7.5H14a2.5 2.5 0 0 1 2.5 2.5v3.5" />
+      <path d="M13.5 13.5 11 11" />
+    </Icon>
+  );
+}
+
+export function OrderIcon(props: SVGProps<SVGSVGElement>) {
+  return (
+    <Icon {...props}>
+      <path d="M6 4.5h9l3 3v12a1 1 0 0 1-1 1H6a1 1 0 0 1-1-1v-14a1 1 0 0 1 1-1z" />
+      <path d="M15 4.5v3h3" />
+      <path d="M8.5 12h7" />
+      <path d="M8.5 15.5h4.5" />
+    </Icon>
+  );
+}
+
 export function DownloadIcon(props: SVGProps<SVGSVGElement>) {
   return (
     <Icon {...props}>

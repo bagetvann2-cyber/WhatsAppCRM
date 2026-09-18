@@ -1,22 +1,60 @@
 import { prisma } from "@/lib/db";
 
 /**
- * Общая заготовка для тестов: компания с подключённым номером.
+ * Общая заготовка для тестов: компания с подключённым каналом WhatsApp.
  * Каждый тестовый файл работает со своим phoneNumberId, поэтому файлы
  * не мешают друг другу при параллельном запуске.
  */
 export async function createTestOrg(phoneNumberId: string, name = `Тест ${phoneNumberId}`) {
   const organization = await prisma.organization.create({ data: { name } });
-  await prisma.whatsappNumber.create({
-    data: { organizationId: organization.id, phoneNumberId, displayNumber: "+1 555 000 0000" },
+  const channel = await prisma.channel.create({
+    data: {
+      organizationId: organization.id,
+      type: "WHATSAPP",
+      connectionMethod: "WA_MANUAL",
+      name: "WhatsApp",
+      status: "ACTIVE",
+      externalId: phoneNumberId,
+      externalUsername: "+1 555 000 0000",
+    },
   });
-  return organization;
+  // Возвращаем организацию как раньше (везде используют .id) плюс id канала —
+  // он нужен тестам, которые сами создают Contact/Conversation/Message.
+  return { ...organization, channelId: channel.id };
 }
 
 /** Убирает компанию со всем, что к ней привязано: каскад разберёт остальное. */
 export async function dropTestOrg(phoneNumberId: string) {
-  const number = await prisma.whatsappNumber.findUnique({ where: { phoneNumberId } });
-  if (number) {
-    await prisma.organization.deleteMany({ where: { id: number.organizationId } });
+  const channel = await prisma.channel.findUnique({
+    where: { type_externalId: { type: "WHATSAPP", externalId: phoneNumberId } },
+  });
+  if (channel) {
+    await prisma.organization.deleteMany({ where: { id: channel.organizationId } });
+  }
+}
+
+/** То же самое, но с каналом Telegram (свой бот) — для тестов вебхука и ingest. */
+export async function createTestTelegramOrg(botId: string, name = `Тест ${botId}`) {
+  const organization = await prisma.organization.create({ data: { name } });
+  const channel = await prisma.channel.create({
+    data: {
+      organizationId: organization.id,
+      type: "TELEGRAM",
+      connectionMethod: "TG_OWN_BOT",
+      name: "Telegram-бот",
+      status: "ACTIVE",
+      externalId: botId,
+      externalUsername: "@test_bot",
+    },
+  });
+  return { ...organization, channelId: channel.id };
+}
+
+export async function dropTestTelegramOrg(botId: string) {
+  const channel = await prisma.channel.findUnique({
+    where: { type_externalId: { type: "TELEGRAM", externalId: botId } },
+  });
+  if (channel) {
+    await prisma.organization.deleteMany({ where: { id: channel.organizationId } });
   }
 }

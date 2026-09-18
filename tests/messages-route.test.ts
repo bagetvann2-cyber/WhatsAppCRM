@@ -6,6 +6,7 @@ import { createTestOrg, dropTestOrg } from "./helpers";
 const phoneNumberId = "PNID-OUT";
 const waId = "77012223344";
 let organizationId: string;
+let channelId: string;
 
 // Роут спрашивает, кто пришёл. В тестах подменяем ответ, чтобы не поднимать куки и HTTP.
 const currentUserMock = vi.hoisted(() => vi.fn());
@@ -15,7 +16,9 @@ let operatorId: string;
 
 beforeAll(async () => {
   await dropTestOrg(phoneNumberId);
-  organizationId = (await createTestOrg(phoneNumberId)).id;
+  const testOrg = await createTestOrg(phoneNumberId);
+  organizationId = testOrg.id;
+  channelId = testOrg.channelId;
 
   // Автор исходящего — настоящая строка в User: сообщение ссылается на него.
   await prisma.user.deleteMany({ where: { email: "operator@out.test" } });
@@ -30,10 +33,10 @@ beforeAll(async () => {
 
 async function seed(windowExpiresAt: Date) {
   const contact = await prisma.contact.create({
-    data: { organizationId, waId, name: "Ержан" },
+    data: { organizationId, channelId, externalUserId: waId, name: "Ержан" },
   });
   return prisma.conversation.create({
-    data: { organizationId, contactId: contact.id, phoneNumberId, windowExpiresAt },
+    data: { organizationId, contactId: contact.id, channelId, windowExpiresAt },
   });
 }
 
@@ -79,13 +82,13 @@ test("без входа в кабинет отправка запрещена", 
 test("в чужой диалог написать нельзя", async () => {
   const stranger = await createTestOrg("PNID-OUT-STRANGER", "Чужая компания");
   const strangerContact = await prisma.contact.create({
-    data: { organizationId: stranger.id, waId: "77010000777" },
+    data: { organizationId: stranger.id, channelId: stranger.channelId, externalUserId: "77010000777" },
   });
   const strangerConversation = await prisma.conversation.create({
     data: {
       organizationId: stranger.id,
       contactId: strangerContact.id,
-      phoneNumberId: "PNID-OUT-STRANGER",
+      channelId: stranger.channelId,
       windowExpiresAt: new Date(Date.now() + 3600 * 1000),
     },
   });
@@ -119,7 +122,9 @@ test("отправляет сообщение и сохраняет его ка�
   const response = await POST(request({ conversationId: conversation.id, text: "Готово" }));
 
   expect(response.status).toBe(200);
-  const stored = await prisma.message.findUnique({ where: { wamid: "wamid.OUT.1" } });
+  const stored = await prisma.message.findUnique({
+    where: { channelId_externalMessageId: { channelId, externalMessageId: "wamid.OUT.1" } },
+  });
   expect(stored?.direction).toBe("OUTBOUND");
   expect(stored?.text).toBe("Готово");
 });

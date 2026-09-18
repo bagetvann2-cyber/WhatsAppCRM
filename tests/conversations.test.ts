@@ -12,21 +12,23 @@ async function seed() {
   await dropTestOrg(phoneNumberId);
   await dropTestOrg(otherPhoneNumberId);
 
-  organizationId = (await createTestOrg(phoneNumberId, "Клиника")).id;
-  otherOrganizationId = (await createTestOrg(otherPhoneNumberId, "Салон")).id;
+  const org = await createTestOrg(phoneNumberId, "Клиника");
+  const otherOrg = await createTestOrg(otherPhoneNumberId, "Салон");
+  organizationId = org.id;
+  otherOrganizationId = otherOrg.id;
 
   const aigerim = await prisma.contact.create({
-    data: { organizationId, waId: "77011110001", name: "Айгерим" },
+    data: { organizationId, channelId: org.channelId, externalUserId: "77011110001", name: "Айгерим" },
   });
   const yerzhan = await prisma.contact.create({
-    data: { organizationId, waId: "77011110002", name: "Ержан" },
+    data: { organizationId, channelId: org.channelId, externalUserId: "77011110002", name: "Ержан" },
   });
 
   const older = await prisma.conversation.create({
     data: {
       organizationId,
       contactId: yerzhan.id,
-      phoneNumberId,
+      channelId: org.channelId,
       lastMessageAt: new Date("2026-08-15T10:00:00Z"),
     },
   });
@@ -34,7 +36,7 @@ async function seed() {
     data: {
       organizationId,
       contactId: aigerim.id,
-      phoneNumberId,
+      channelId: org.channelId,
       lastMessageAt: new Date("2026-08-16T10:00:00Z"),
     },
   });
@@ -42,7 +44,8 @@ async function seed() {
   await prisma.message.createMany({
     data: [
       {
-        wamid: "wamid.LIST.1",
+        externalMessageId: "wamid.LIST.1",
+        channelId: org.channelId,
         conversationId: newer.id,
         direction: "INBOUND",
         type: "text",
@@ -50,7 +53,8 @@ async function seed() {
         timestamp: new Date("2026-08-16T10:00:00Z"),
       },
       {
-        wamid: "wamid.LIST.2",
+        externalMessageId: "wamid.LIST.2",
+        channelId: org.channelId,
         conversationId: older.id,
         direction: "INBOUND",
         type: "text",
@@ -62,19 +66,25 @@ async function seed() {
 
   // Чужая компания с похожими данными — она не должна попадать в выдачу.
   const stranger = await prisma.contact.create({
-    data: { organizationId: otherOrganizationId, waId: "77011110001", name: "Айгерим" },
+    data: {
+      organizationId: otherOrganizationId,
+      channelId: otherOrg.channelId,
+      externalUserId: "77011110001",
+      name: "Айгерим",
+    },
   });
   const strangerConversation = await prisma.conversation.create({
     data: {
       organizationId: otherOrganizationId,
       contactId: stranger.id,
-      phoneNumberId: otherPhoneNumberId,
+      channelId: otherOrg.channelId,
       lastMessageAt: new Date("2026-08-17T10:00:00Z"),
     },
   });
   await prisma.message.create({
     data: {
-      wamid: "wamid.LIST.STRANGER",
+      externalMessageId: "wamid.LIST.STRANGER",
+      channelId: otherOrg.channelId,
       conversationId: strangerConversation.id,
       direction: "INBOUND",
       type: "text",

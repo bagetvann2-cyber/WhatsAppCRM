@@ -11,6 +11,7 @@ const scrypt = promisify(crypto.scrypt) as (
 
 const KEY_LENGTH = 64;
 const SESSION_DAYS = 30;
+const VERIFICATION_HOURS = 48;
 
 /** Хеш пароля: scrypt со случайной солью. Формат — «соль:хеш» в hex. */
 export async function hashPassword(password: string): Promise<string> {
@@ -64,6 +65,8 @@ export async function registerOrganization(input: RegisterInput): Promise<{
   }
 
   const passwordHash = await hashPassword(input.password);
+  const verificationToken = crypto.randomBytes(32).toString("hex");
+  const verificationTokenExpiresAt = new Date(Date.now() + VERIFICATION_HOURS * 3600 * 1000);
 
   return prisma.$transaction(async (tx) => {
     const organization = await tx.organization.create({
@@ -71,7 +74,13 @@ export async function registerOrganization(input: RegisterInput): Promise<{
     });
 
     const user = await tx.user.create({
-      data: { email, passwordHash, name: input.name?.trim() || null },
+      data: {
+        email,
+        passwordHash,
+        name: input.name?.trim() || null,
+        verificationToken,
+        verificationTokenExpiresAt,
+      },
     });
 
     const membership = await tx.membership.create({
@@ -102,6 +111,26 @@ export async function createSession(userId: string): Promise<string> {
 
 export async function destroySession(token: string): Promise<void> {
   await prisma.session.deleteMany({ where: { token } });
+}
+
+/**
+ * Подтверждение почты по ссылке из письма. Токен одноразовый — успех гасит его,
+ * повторный переход по той же ссылке уже ничего не найдёт.
+ */
+export async function verifyEmailToken(token: string): Promise<User | null> {
+  if (!token) {
+    return null;
+  }
+
+  const user = await prisma.user.findUnique({ where: { verificationToken: token } });
+  if (!user || !user.verificationTokenExpiresAt || user.verificationTokenExpiresAt.getTime() < Date.now()) {
+    return null;
+  }
+
+  return prisma.user.update({
+    where: { id: user.id },
+    data: { emailVerifiedAt: new Date(), verificationToken: null, verificationTokenExpiresAt: null },
+  });
 }
 
 export type CurrentUser = {
@@ -138,12 +167,11 @@ export async function userFromSessionToken(token: string): Promise<CurrentUser |
     return null;
   }
 
-  const membership = session.user.memberships[0];
+  const { memberships, ...user } = session.user;
+  const membership = memberships[0];
   if (!membership) {
     return null;
   }
-
-  const { memberships: _memberships, ...user } = session.user;
 
   return {
     user: user as User,

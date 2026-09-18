@@ -65,5 +65,5 @@ export async function acceptInviteAction(_prev: FormState, data: FormData): Prom
   }
 
   await setSessionCookie(await createSession(userId));
-  redirect("/");
+  redirect("/inbox");
 }

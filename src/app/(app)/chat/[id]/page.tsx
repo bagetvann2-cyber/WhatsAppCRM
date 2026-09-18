@@ -17,6 +17,7 @@ import {
   type ThreadMessage,
 } from "@/lib/conversations";
 import { dayKey, dayLabel, formatPhone, initials } from "@/lib/format";
+import { isReplyWindowOpen } from "@/lib/conversation-window";
 import { requireUser } from "@/lib/session";
 import { canManageTeam, listMembers } from "@/lib/team";
 
@@ -76,8 +77,7 @@ export default async function ChatPage({ params, searchParams }: PageProps<"/cha
     label: member.user.name?.trim() || member.user.email,
   }));
 
-  const windowOpen =
-    conversation.windowExpiresAt !== null && conversation.windowExpiresAt.getTime() > Date.now();
+  const windowOpen = isReplyWindowOpen(conversation.channel, conversation);
   const days = groupByDay(conversation.messages);
   const lastMessage = conversation.messages.at(-1);
 
@@ -110,15 +110,15 @@ export default async function ChatPage({ params, searchParams }: PageProps<"/cha
             aria-hidden="true"
             className="grid size-10 shrink-0 place-items-center rounded-full bg-accent-soft text-sm font-semibold text-accent"
           >
-            {initials(conversation.contact.name, conversation.contact.waId)}
+            {initials(conversation.contact.name, conversation.contact.externalUserId)}
           </span>
 
           <div className="min-w-0 flex-1">
             <h2 className="truncate font-bold text-ink">
-              {conversation.contact.name ?? formatPhone(conversation.contact.waId)}
+              {conversation.contact.name ?? formatPhone(conversation.contact.externalUserId)}
             </h2>
             <p className="truncate text-xs text-ink-muted tabular-nums">
-              {formatPhone(conversation.contact.waId)}
+              {formatPhone(conversation.contact.externalUserId)}
             </p>
           </div>
 

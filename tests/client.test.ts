@@ -1,9 +1,9 @@
 import { afterEach, beforeAll, expect, test, vi } from "vitest";
-import { sendTextMessage } from "@/lib/whatsapp/client";
+import { sendTextMessage, type WhatsAppCredentials } from "@/lib/whatsapp/client";
+
+const creds: WhatsAppCredentials = { accessToken: "test-token", phoneNumberId: "PNID-SEND" };
 
 beforeAll(() => {
-  process.env.WHATSAPP_TOKEN = "test-token";
-  process.env.WHATSAPP_PHONE_NUMBER_ID = "PNID-SEND";
   process.env.GRAPH_API_VERSION = "v22.0";
 });
 
@@ -19,7 +19,7 @@ test("шлёт корректный запрос и возвращает wamid",
     );
   vi.stubGlobal("fetch", fetchMock);
 
-  const result = await sendTextMessage("77011234567", "Добрый день");
+  const result = await sendTextMessage(creds, "77011234567", "Добрый день");
 
   expect(result.wamid).toBe("wamid.SENT");
   const [url, init] = fetchMock.mock.calls[0];
@@ -44,7 +44,7 @@ test("бросает ошибку с текстом от Meta при отказ�
     ),
   );
 
-  await expect(sendTextMessage("77010000000", "Тест")).rejects.toThrow(
+  await expect(sendTextMessage(creds, "77010000000", "Тест")).rejects.toThrow(
     "Recipient not in allowed list",
   );
 });

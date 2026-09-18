@@ -5,6 +5,7 @@ import {
   hashPassword,
   registerOrganization,
   userFromSessionToken,
+  verifyEmailToken,
   verifyPassword,
   signIn,
 } from "@/lib/auth";
@@ -86,6 +87,49 @@ test("почта нечувствительна к регистру и проб�
 
   const signedIn = await signIn("Owner@Test-Auth.kz", "пароль-12345");
   expect(signedIn?.email).toBe(email);
+});
+
+test("регистрация выдаёт токен подтверждения и не подтверждает почту сразу", async () => {
+  const { user } = await registerOrganization({
+    organizationName: "Тест-организация Токен",
+    email,
+    password: "пароль-12345",
+  });
+
+  expect(user.emailVerifiedAt).toBeNull();
+  expect(user.verificationToken).toBeTruthy();
+  expect(user.verificationTokenExpiresAt?.getTime()).toBeGreaterThan(Date.now());
+});
+
+test("verifyEmailToken подтверждает по верному токену и гасит его", async () => {
+  const { user } = await registerOrganization({
+    organizationName: "Тест-организация Подтверждение",
+    email,
+    password: "пароль-12345",
+  });
+
+  const verified = await verifyEmailToken(user.verificationToken!);
+  expect(verified?.emailVerifiedAt).not.toBeNull();
+
+  // Токен одноразовый: повторный переход по ссылке уже ничего не находит.
+  expect(await verifyEmailToken(user.verificationToken!)).toBeNull();
+});
+
+test("verifyEmailToken отклоняет пустой, чужой и просроченный токен", async () => {
+  const { user } = await registerOrganization({
+    organizationName: "Тест-организация Просрочка Почты",
+    email,
+    password: "пароль-12345",
+  });
+
+  expect(await verifyEmailToken("")).toBeNull();
+  expect(await verifyEmailToken("нет-такого-токена")).toBeNull();
+
+  await prisma.user.update({
+    where: { id: user.id },
+    data: { verificationTokenExpiresAt: new Date(Date.now() - 1000) },
+  });
+  expect(await verifyEmailToken(user.verificationToken!)).toBeNull();
 });
 
 test("вход с верным паролем возвращает пользователя, с неверным — null", async () => {

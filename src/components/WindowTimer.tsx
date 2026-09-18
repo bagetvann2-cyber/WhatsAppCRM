@@ -13,15 +13,15 @@ const HOUR = 3600_000;
  */
 export function WindowTimer({ expiresAt }: { expiresAt: string | null }) {
   const deadline = expiresAt ? new Date(expiresAt).getTime() : null;
-  const [left, setLeft] = useState(() => (deadline === null ? 0 : deadline - Date.now()));
+  const [now, setNow] = useState(() => Date.now());
+  const left = deadline === null ? 0 : deadline - now;
 
   useEffect(() => {
     if (deadline === null) {
       return;
     }
 
-    const timer = setInterval(() => setLeft(deadline - Date.now()), 30_000);
-    setLeft(deadline - Date.now());
+    const timer = setInterval(() => setNow(Date.now()), 30_000);
     return () => clearInterval(timer);
   }, [deadline]);
 

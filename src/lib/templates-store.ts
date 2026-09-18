@@ -1,6 +1,7 @@
 import { prisma } from "@/lib/db";
 import { toMetaPayload, validateTemplate, type TemplateDraft } from "@/lib/templates";
 import { submitTemplate } from "@/lib/whatsapp/client";
+import { whatsAppCredentials } from "@/lib/channels/whatsapp";
 import type { TemplateStatus } from "@/generated/prisma/client";
 import type { TemplateUpdate } from "@/lib/whatsapp/parse";
 
@@ -59,8 +60,9 @@ export async function sendForReview(organizationId: string, id: string) {
     throw new Error("На модерацию можно отправить только черновик или отклонённый шаблон.");
   }
 
-  const number = await prisma.whatsappNumber.findFirst({ where: { organizationId } });
-  if (!number?.wabaId) {
+  const channel = await prisma.channel.findFirst({ where: { organizationId, type: "WHATSAPP" } });
+  const creds = channel ? whatsAppCredentials(channel) : null;
+  if (!creds?.wabaId) {
     throw new Error(
       "Сначала подключите номер WhatsApp — шаблоны создаются в аккаунте компании в Meta.",
     );
@@ -76,7 +78,7 @@ export async function sendForReview(organizationId: string, id: string) {
     examples: template.examples,
   });
 
-  const { metaId, status } = await submitTemplate(number.wabaId, payload);
+  const { metaId, status } = await submitTemplate(creds, payload);
 
   return prisma.messageTemplate.update({
     where: { id: template.id },

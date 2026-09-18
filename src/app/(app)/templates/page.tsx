@@ -68,7 +68,7 @@ const STATUS_STYLE: Record<string, string> = {
 export default async function TemplatesPage() {
   const { organization, role } = await requireUser();
   if (!canManageTeam(role)) {
-    redirect("/");
+    redirect("/inbox");
   }
 
   const templates = await listTemplates(organization.id);

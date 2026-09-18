@@ -122,7 +122,9 @@ export async function acceptInvite(input: {
     const invite = await tx.invite.findUniqueOrThrow({ where: { id: check.invite.id } });
 
     const user = await tx.user.create({
-      data: { email, passwordHash, name: input.name?.trim() || null },
+      // Ссылка-приглашение уже доказывает, что человек получил её от владельца,
+      // поэтому отдельного письма с подтверждением почты не нужно.
+      data: { email, passwordHash, name: input.name?.trim() || null, emailVerifiedAt: new Date() },
     });
 
     await tx.membership.create({

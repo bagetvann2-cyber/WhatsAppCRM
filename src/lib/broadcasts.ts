@@ -4,6 +4,7 @@ import { getBalance, recordOperation } from "@/lib/billing-store";
 import { contactWhere, type ContactFilter } from "@/lib/contacts";
 import { PRICE_PER_MESSAGE, estimateCost } from "@/lib/pricing";
 import { sendTemplateMessage } from "@/lib/whatsapp/client";
+import { whatsAppCredentials } from "@/lib/channels/whatsapp";
 
 export { PRICE_PER_MESSAGE, estimateCost } from "@/lib/pricing";
 
@@ -177,6 +178,12 @@ export async function runBroadcast(organizationId: string, id: string): Promise<
     throw new Error("Эта рассылка уже запускалась.");
   }
 
+  const channel = await prisma.channel.findFirst({ where: { organizationId, type: "WHATSAPP" } });
+  if (!channel) {
+    throw new Error("У компании нет подключённого канала WhatsApp.");
+  }
+  const creds = whatsAppCredentials(channel);
+
   // Проверяем деньги до первой отправки: рассылка, оборвавшаяся на середине,
   // это половина клиентов с обрывком акции и объяснение по телефону остальным.
   const recipientCount = await prisma.broadcastRecipient.count({
@@ -226,7 +233,8 @@ export async function runBroadcast(organizationId: string, id: string): Promise<
 
     try {
       const { wamid } = await sendTemplateMessage(
-        recipient.contact.waId,
+        creds,
+        recipient.contact.externalUserId,
         { name: broadcast.template.name, language: broadcast.template.language },
         valuesForContact(broadcast.template.examples, recipient.contact),
       );

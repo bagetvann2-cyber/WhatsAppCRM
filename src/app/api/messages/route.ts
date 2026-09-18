@@ -4,8 +4,9 @@ import { messageEvents } from "@/lib/events";
 import { mediaKind, sizeLabel } from "@/lib/media";
 import { storeOutgoingMedia } from "@/lib/media-store";
 import { currentUser } from "@/lib/session";
-import { sendTextMessage } from "@/lib/whatsapp/client";
 import { sendMediaMessage, uploadMedia } from "@/lib/whatsapp/media";
+import { sendChannelText } from "@/lib/channels";
+import { isReplyWindowOpen } from "@/lib/conversation-window";
 
 type Outgoing =
   | { kind: "text"; text: string }
@@ -80,35 +81,44 @@ export async function POST(request: Request): Promise<Response> {
   // и ответ неотличим от несуществующего — чужие id не подтверждаются.
   const conversation = await prisma.conversation.findFirst({
     where: { id: parsed.conversationId, organizationId: me.organization.id },
-    include: { contact: true },
+    include: { contact: true, channel: true },
   });
 
   if (!conversation) {
     return Response.json({ error: "Диалог не найден" }, { status: 400 });
   }
 
-  const windowOpen =
-    conversation.windowExpiresAt !== null && conversation.windowExpiresAt.getTime() > Date.now();
-
-  if (!windowOpen) {
+  if (!isReplyWindowOpen(conversation.channel, conversation)) {
     return Response.json(
       { error: "Окно 24 часа закрыто. Свободный ответ недоступен, нужен одобренный шаблон." },
       { status: 422 },
     );
   }
 
+  const { message } = parsed;
+
+  // Файл у Telegram пока не уходит: uploadMedia/sendMediaMessage говорят
+  // только с WhatsApp — портировать на Telegram, когда понадобится.
+  if (message.kind === "media" && conversation.channel.type !== "WHATSAPP") {
+    return Response.json({ error: "Отправка файлов пока доступна только для WhatsApp" }, { status: 422 });
+  }
+
   try {
     const now = new Date();
-    const { message } = parsed;
-    let sentWamid: string;
+    let sentExternalMessageId: string;
 
     if (message.kind === "text") {
-      const { wamid } = await sendTextMessage(conversation.contact.waId, message.text);
-      sentWamid = wamid;
+      const { externalMessageId } = await sendChannelText({
+        channel: conversation.channel,
+        to: conversation.contact.externalUserId,
+        text: message.text,
+      });
+      sentExternalMessageId = externalMessageId;
 
       await prisma.message.create({
         data: {
-          wamid,
+          externalMessageId,
+          channelId: conversation.channel.id,
           conversationId: conversation.id,
           direction: "OUTBOUND",
           type: "text",
@@ -124,15 +134,16 @@ export async function POST(request: Request): Promise<Response> {
       // Сначала файл уезжает в Meta и получает id, и только потом уходит
       // сообщение: отправить можно лишь то, что она уже приняла.
       const { mediaId } = await uploadMedia(message.file);
-      const { wamid } = await sendMediaMessage(conversation.contact.waId, kind, mediaId, {
+      const { wamid } = await sendMediaMessage(conversation.contact.externalUserId, kind, mediaId, {
         caption: message.caption,
         filename: message.file.filename,
       });
-      sentWamid = wamid;
+      sentExternalMessageId = wamid;
 
       const stored = await prisma.message.create({
         data: {
-          wamid,
+          externalMessageId: wamid,
+          channelId: conversation.channel.id,
           conversationId: conversation.id,
           direction: "OUTBOUND",
           type: kind,
@@ -163,7 +174,7 @@ export async function POST(request: Request): Promise<Response> {
 
     messageEvents.emit("update", { conversationId: conversation.id });
 
-    return Response.json({ wamid: sentWamid }, { status: 200 });
+    return Response.json({ externalMessageId: sentExternalMessageId }, { status: 200 });
   } catch (error) {
     const message = error instanceof Error ? error.message : "Не удалось отправить сообщение";
     return Response.json({ error: message }, { status: 502 });

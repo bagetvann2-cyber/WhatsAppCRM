@@ -26,6 +26,7 @@ import { createTestOrg, dropTestOrg } from "./helpers";
 
 const phoneNumberId = "PNID-BILL";
 let organizationId: string;
+let channelId: string;
 let templateId: string;
 
 const sendMock = vi.hoisted(() => vi.fn());
@@ -42,7 +43,9 @@ beforeEach(async () => {
   sendMock.mockImplementation(async () => ({ wamid: `${phoneNumberId}.CAST.${++counter}` }));
 
   await dropTestOrg(phoneNumberId);
-  organizationId = (await createTestOrg(phoneNumberId)).id;
+  const testOrg = await createTestOrg(phoneNumberId);
+  organizationId = testOrg.id;
+  channelId = testOrg.channelId;
   await ensurePlans();
 
   const template = await prisma.messageTemplate.create({
@@ -60,8 +63,8 @@ beforeEach(async () => {
 
   await prisma.contact.createMany({
     data: [
-      { organizationId, waId: "77010001001", name: "Айгерим" },
-      { organizationId, waId: "77010001002", name: "Ержан" },
+      { organizationId, channelId, externalUserId: "77010001001", name: "Айгерим" },
+      { organizationId, channelId, externalUserId: "77010001002", name: "Ержан" },
     ],
   });
 });
@@ -119,10 +122,11 @@ test("пробный период начинается с первого соо�
   expect(isSubscriptionActive(before)).toBe(true);
 
   await saveIncomingMessage({
-    wamid: `${phoneNumberId}.IN.1`,
+    channelType: "WHATSAPP",
+    externalMessageId: `${phoneNumberId}.IN.1`,
     from: "77010001001",
     profileName: "Айгерим",
-    phoneNumberId,
+    channelExternalId: phoneNumberId,
     type: "text",
     text: "Здравствуйте",
     media: null,

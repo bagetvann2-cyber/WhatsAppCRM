@@ -1,18 +1,19 @@
 "use client";
 
-import { useEffect, useState } from "react";
+import { useState, useSyncExternalStore } from "react";
 
 /**
  * Ссылка-приглашение с копированием. Адрес собирается на клиенте:
  * сервер не знает, по какому имени к нему пришли — localhost, туннель или домен.
  */
 export function InviteLink({ token }: { token: string }) {
-  const [url, setUrl] = useState("");
+  const origin = useSyncExternalStore(
+    () => () => {},
+    () => window.location.origin,
+    () => "",
+  );
+  const url = origin ? `${origin}/invite/${token}` : "";
   const [copied, setCopied] = useState(false);
-
-  useEffect(() => {
-    setUrl(`${window.location.origin}/invite/${token}`);
-  }, [token]);
 
   async function copy() {
     await navigator.clipboard.writeText(url);

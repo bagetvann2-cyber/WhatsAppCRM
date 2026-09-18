@@ -23,10 +23,11 @@ async function member(email: string, role: "OWNER" | "OPERATOR", name: string) {
 
 async function conversation(waId: string, wamid: string) {
   const result = await saveIncomingMessage({
-    wamid: `${phoneNumberId}.${wamid}`,
+    channelType: "WHATSAPP",
+    externalMessageId: `${phoneNumberId}.${wamid}`,
     from: waId,
     profileName: "Клиент",
-    phoneNumberId,
+    channelExternalId: phoneNumberId,
     type: "text",
     text: "Здравствуйте",
     media: null,
@@ -174,13 +175,13 @@ test("назначить можно только сотрудника этого
 test("чужой диалог не назначается даже своим сотрудником", async () => {
   const stranger = await createTestOrg(strangerNumberId);
   const foreignContact = await prisma.contact.create({
-    data: { organizationId: stranger.id, waId: "77011110004" },
+    data: { organizationId: stranger.id, channelId: stranger.channelId, externalUserId: "77011110004" },
   });
   const foreign = await prisma.conversation.create({
     data: {
       organizationId: stranger.id,
       contactId: foreignContact.id,
-      phoneNumberId: strangerNumberId,
+      channelId: stranger.channelId,
     },
   });
 

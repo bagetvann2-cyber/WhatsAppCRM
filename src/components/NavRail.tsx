@@ -5,9 +5,11 @@ import { usePathname } from "next/navigation";
 import { signOutAction } from "@/app/(auth)/actions";
 import {
   BoltIcon,
+  ChannelIcon,
   ChatIcon,
   LogoutIcon,
   MegaphoneIcon,
+  OrderIcon,
   ReportIcon,
   SparkIcon,
   TeamIcon,
@@ -26,13 +28,15 @@ type Item = {
 };
 
 const ITEMS: Item[] = [
-  { href: "/", label: "Диалоги", Icon: ChatIcon },
+  { href: "/inbox", label: "Диалоги", Icon: ChatIcon },
   { href: "/contacts", label: "Контакты", Icon: UsersIcon },
+  { href: "/orders", label: "Заказы", Icon: OrderIcon },
   { href: "/broadcasts", label: "Рассылки", Icon: MegaphoneIcon, manageOnly: true },
   { href: "/templates", label: "Шаблоны", Icon: TemplateIcon, manageOnly: true },
   { href: "/automation", label: "Автоответы", Icon: BoltIcon, manageOnly: true },
   { href: "/ai-bot", label: "ИИ-помощник", Icon: SparkIcon, manageOnly: true },
   { href: "/reports", label: "Отчёты", Icon: ReportIcon, manageOnly: true },
+  { href: "/channels", label: "Каналы", Icon: ChannelIcon, manageOnly: true },
   { href: "/team", label: "Команда", Icon: TeamIcon, manageOnly: true },
   { href: "/billing", label: "Тариф", Icon: WalletIcon, manageOnly: true },
 ];
@@ -50,7 +54,9 @@ export function NavRail({
   const visible = ITEMS.filter((item) => !item.manageOnly || canManage);
 
   function isActive(href: string): boolean {
-    return href === "/" ? pathname === "/" || pathname.startsWith("/chat") : pathname.startsWith(href);
+    return href === "/inbox"
+      ? pathname === "/inbox" || pathname.startsWith("/chat")
+      : pathname.startsWith(href);
   }
 
   return (

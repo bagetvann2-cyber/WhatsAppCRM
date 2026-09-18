@@ -9,6 +9,7 @@ import {
 } from "@/lib/ai-bot";
 import { getBot, runAiBot, saveBot } from "@/lib/ai-bot-store";
 import { saveIncomingMessage } from "@/lib/ingest";
+import { getOrderFields, getOrders, saveOrderFields } from "@/lib/orders-store";
 import { createTestOrg, dropTestOrg } from "./helpers";
 
 const phoneNumberId = "PNID-BOT";
@@ -18,9 +19,9 @@ let organizationId: string;
 const askMock = vi.hoisted(() => vi.fn());
 const sendMock = vi.hoisted(() => vi.fn());
 vi.mock("@/lib/ai-client", () => ({ askBot: askMock }));
-vi.mock("@/lib/whatsapp/client", () => ({
-  sendTextMessage: sendMock,
-  sendTemplateMessage: vi.fn(),
+vi.mock("@/lib/channels", async (importOriginal) => ({
+  ...(await importOriginal<typeof import("@/lib/channels")>()),
+  sendChannelText: sendMock,
 }));
 
 const settings: BotSettings = {
@@ -35,9 +36,9 @@ const settings: BotSettings = {
 beforeEach(async () => {
   askMock.mockReset();
   sendMock.mockReset();
-  // Каждый ответ — свой wamid: у Meta двух одинаковых не бывает.
+  // Каждый ответ — свой externalMessageId: у Meta двух одинаковых не бывает.
   let sent = 0;
-  sendMock.mockImplementation(async () => ({ wamid: `${phoneNumberId}.OUT.${++sent}` }));
+  sendMock.mockImplementation(async () => ({ externalMessageId: `${phoneNumberId}.OUT.${++sent}` }));
 
   await dropTestOrg(phoneNumberId);
   organizationId = (await createTestOrg(phoneNumberId)).id;
@@ -110,12 +111,13 @@ test("настройки сохраняются и читаются", async () =
 
 async function incoming(text: string, wamid: string) {
   const result = await saveIncomingMessage({
-    // wamid уникален глобально, как у Meta: без префикса файла тесты в
-    // параллельном прогоне «съедают» сообщения друг друга дедупликацией.
-    wamid: `${phoneNumberId}.${wamid}`,
+    channelType: "WHATSAPP",
+    // externalMessageId уникален глобально, как у Meta: без префикса файла
+    // тесты в параллельном прогоне «съедают» сообщения друг друга дедупликацией.
+    externalMessageId: `${phoneNumberId}.${wamid}`,
     from: waId,
     profileName: "Клиент",
-    phoneNumberId,
+    channelExternalId: phoneNumberId,
     type: "text",
     text,
     media: null,
@@ -139,10 +141,12 @@ test("бот отвечает клиенту и сохраняет ответ в
   });
 
   const { conversationId } = await incoming("Сколько стоит чистка?", "wamid.IN.1");
-  const run = await runAiBot({ organizationId, conversationId, waId });
+  const run = await runAiBot({ organizationId, conversationId, to: waId });
 
   expect(run).toEqual({ status: "answered", text: "Чистка стоит 15 000 ₸. Записать вас?" });
-  expect(sendMock).toHaveBeenCalledWith(waId, "Чистка стоит 15 000 ₸. Записать вас?");
+  expect(sendMock).toHaveBeenCalledWith(
+    expect.objectContaining({ to: waId, text: "Чистка стоит 15 000 ₸. Записать вас?" }),
+  );
 
   const outbound = await prisma.message.findMany({
     where: { conversationId, direction: "OUTBOUND" },
@@ -165,10 +169,10 @@ test("боту уходит история диалога, начиная с с�
   });
 
   const { conversationId } = await incoming("Здравствуйте", "wamid.IN.1");
-  await runAiBot({ organizationId, conversationId, waId });
+  await runAiBot({ organizationId, conversationId, to: waId });
   await incoming("А завтра есть места?", "wamid.IN.2");
   askMock.mockClear();
-  await runAiBot({ organizationId, conversationId, waId });
+  await runAiBot({ organizationId, conversationId, to: waId });
 
   const history = askMock.mock.calls[0][0].history;
   expect(history[0].role).toBe("user");
@@ -187,7 +191,7 @@ test("передача оператору помечает диалог и за�
   });
 
   const { conversationId } = await incoming("Дайте скидку 50%", "wamid.IN.1");
-  const run = await runAiBot({ organizationId, conversationId, waId });
+  const run = await runAiBot({ organizationId, conversationId, to: waId });
 
   expect(run).toEqual({ status: "handoff", reason: "Клиент требует скидку" });
   expect(sendMock).not.toHaveBeenCalled();
@@ -200,7 +204,7 @@ test("передача оператору помечает диалог и за�
   // Следующее сообщение бот уже игнорирует
   await incoming("Ну пожалуйста", "wamid.IN.2");
   askMock.mockClear();
-  const second = await runAiBot({ organizationId, conversationId, waId });
+  const second = await runAiBot({ organizationId, conversationId, to: waId });
 
   expect(second).toEqual({ status: "skipped", reason: "handed-off" });
   expect(askMock).not.toHaveBeenCalled();
@@ -218,13 +222,13 @@ test("исчерпанный пакет останавливает бота до
   });
 
   const { conversationId } = await incoming("Первый вопрос", "wamid.IN.1");
-  expect(await runAiBot({ organizationId, conversationId, waId })).toMatchObject({
+  expect(await runAiBot({ organizationId, conversationId, to: waId })).toMatchObject({
     status: "answered",
   });
 
   await incoming("Второй вопрос", "wamid.IN.2");
   askMock.mockClear();
-  const second = await runAiBot({ organizationId, conversationId, waId });
+  const second = await runAiBot({ organizationId, conversationId, to: waId });
 
   expect(second).toEqual({ status: "skipped", reason: "quota" });
   expect(askMock).not.toHaveBeenCalled();
@@ -235,7 +239,7 @@ test("сбой API логируется и не роняет приём сооб
   askMock.mockRejectedValue(new Error("Claude недоступен"));
 
   const { conversationId } = await incoming("Вопрос", "wamid.IN.1");
-  const run = await runAiBot({ organizationId, conversationId, waId });
+  const run = await runAiBot({ organizationId, conversationId, to: waId });
 
   expect(run).toMatchObject({ status: "failed" });
   expect(await prisma.message.count({ where: { conversationId } })).toBe(1);
@@ -256,9 +260,61 @@ test("расход токенов пишется в журнал для отчё
   });
 
   const { conversationId } = await incoming("Вопрос", "wamid.IN.1");
-  await runAiBot({ organizationId, conversationId, waId });
+  await runAiBot({ organizationId, conversationId, to: waId });
 
   const log = await prisma.aiReply.findFirstOrThrow({ where: { organizationId } });
   expect(log.cachedTokens).toBe(2000);
   expect(log.outputTokens).toBe(40);
+});
+
+test("поля заказа, которые вернул бот, передаются askBot и попадают в черновик заказа", async () => {
+  await saveBot(organizationId, settings);
+  await saveOrderFields(organizationId, [
+    { label: "Товар", type: "TEXT", options: null, required: true },
+  ]);
+  const [field] = await getOrderFields(organizationId);
+
+  askMock.mockResolvedValue({
+    answer: "Записал: кроссовки",
+    handoff: false,
+    handoffReason: null,
+    orderFields: { [field.id]: "Кроссовки" },
+    inputTokens: 100,
+    cachedTokens: 0,
+    outputTokens: 10,
+  });
+
+  const { conversationId } = await incoming("Хочу кроссовки", "wamid.IN.1");
+  await runAiBot({ organizationId, conversationId, to: waId });
+
+  // askBot должен получить схему полей организации, чтобы построить save_order.
+  expect(askMock.mock.calls[0][0].orderFields).toEqual([
+    expect.objectContaining({ id: field.id, label: "Товар" }),
+  ]);
+
+  const orders = await getOrders(organizationId);
+  expect(orders).toHaveLength(1);
+  expect(orders[0].status).toBe("DRAFT");
+  expect(orders[0].fields).toEqual({ [field.id]: "Кроссовки" });
+});
+
+test("без orderFields в ответе бота заказ не создаётся", async () => {
+  await saveBot(organizationId, settings);
+  await saveOrderFields(organizationId, [
+    { label: "Товар", type: "TEXT", options: null, required: true },
+  ]);
+  askMock.mockResolvedValue({
+    answer: "Здравствуйте, чем помочь?",
+    handoff: false,
+    handoffReason: null,
+    orderFields: null,
+    inputTokens: 50,
+    cachedTokens: 0,
+    outputTokens: 5,
+  });
+
+  const { conversationId } = await incoming("Здравствуйте", "wamid.IN.1");
+  await runAiBot({ organizationId, conversationId, to: waId });
+
+  expect(await getOrders(organizationId)).toHaveLength(0);
 });

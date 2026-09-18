@@ -16,6 +16,7 @@ import { createTestOrg, dropTestOrg } from "./helpers";
 
 const phoneNumberId = "PNID-CAST";
 let organizationId: string;
+let channelId: string;
 let templateId: string;
 
 // Отправку подменяем: тесты не ходят в сеть.
@@ -24,7 +25,9 @@ vi.mock("@/lib/whatsapp/client", () => ({ sendTemplateMessage: sendMock }));
 
 beforeAll(async () => {
   await dropTestOrg(phoneNumberId);
-  organizationId = (await createTestOrg(phoneNumberId)).id;
+  const testOrg = await createTestOrg(phoneNumberId);
+  organizationId = testOrg.id;
+  channelId = testOrg.channelId;
 });
 
 beforeEach(async () => {
@@ -55,9 +58,9 @@ beforeEach(async () => {
 
   await prisma.contact.createMany({
     data: [
-      { organizationId, waId: "77010000001", name: "Айгерим" },
-      { organizationId, waId: "77010000002", name: "Ержан" },
-      { organizationId, waId: "77020000003", name: "Дана" },
+      { organizationId, channelId, externalUserId: "77010000001", name: "Айгерим" },
+      { organizationId, channelId, externalUserId: "77010000002", name: "Ержан" },
+      { organizationId, channelId, externalUserId: "77020000003", name: "Дана" },
     ],
   });
 });
@@ -115,7 +118,7 @@ test("рассылка уходит с именем каждого получа�
   const broadcast = await createBroadcast({ organizationId, templateId, name: "Именная" });
   await runBroadcast(organizationId, broadcast.id);
 
-  const names = sendMock.mock.calls.map((call) => call[2][0]);
+  const names = sendMock.mock.calls.map((call) => call[3][0]);
   expect(names).toEqual(["Айгерим", "Ержан", "Дана"]);
 });
 
@@ -130,7 +133,7 @@ test("рассылка фиксирует получателей в момент
 
   // Контакт, добавленный после создания, в эту рассылку не попадёт.
   await prisma.contact.create({
-    data: { organizationId, waId: "77010000009", name: "Поздний" },
+    data: { organizationId, channelId, externalUserId: "77010000009", name: "Поздний" },
   });
 
   const recipients = await prisma.broadcastRecipient.findMany({
@@ -161,8 +164,8 @@ test("запуск отправляет всем и помечает отпра�
   await runBroadcast(organizationId, broadcast.id);
 
   expect(sendMock).toHaveBeenCalledTimes(3);
-  expect(sendMock.mock.calls[0][0]).toBe("77010000001");
-  expect(sendMock.mock.calls[0][1]).toEqual({ name: "akciya_osen", language: "ru" });
+  expect(sendMock.mock.calls[0][1]).toBe("77010000001");
+  expect(sendMock.mock.calls[0][2]).toEqual({ name: "akciya_osen", language: "ru" });
 
   const after = await prisma.broadcast.findUniqueOrThrow({
     where: { id: broadcast.id },

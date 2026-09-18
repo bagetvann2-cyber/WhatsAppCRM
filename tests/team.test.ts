@@ -90,7 +90,10 @@ test("принятие приглашения вводит человека в �
   expect(members[1].role).toBe("OPERATOR");
   expect(members[1].user.name).toBe("Ержан");
 
-  expect(await signIn(`operator${domain}`, "пароль-оператора")).not.toBeNull();
+  const operator = await signIn(`operator${domain}`, "пароль-оператора");
+  expect(operator).not.toBeNull();
+  // Иначе signInAction отказал бы приглашённому во входе после выхода из сессии.
+  expect(operator?.emailVerifiedAt).not.toBeNull();
 });
 
 test("повторное использование ссылки отклоняется", async () => {

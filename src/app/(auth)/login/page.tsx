@@ -7,15 +7,24 @@ export const dynamic = "force-dynamic";
 
 export const metadata = { title: "Вход — WhatsApp CRM" };
 
-export default async function LoginPage() {
+export default async function LoginPage({
+  searchParams,
+}: {
+  searchParams: Promise<{ verifyError?: string }>;
+}) {
   if (await currentUser()) {
-    redirect("/");
+    redirect("/inbox");
   }
+  const { verifyError } = await searchParams;
 
   return (
     <AuthForm
       title="Вход в кабинет"
-      subtitle="Переписка вашей команды с клиентами — в одном месте."
+      subtitle={
+        verifyError
+          ? "Ссылка подтверждения недействительна или устарела (48 часов). Войдите, если уже подтвердили почту."
+          : "Переписка вашей команды с клиентами — в одном месте."
+      }
       submitLabel="Войти"
       action={signInAction}
       fields={[

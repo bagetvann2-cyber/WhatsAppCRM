@@ -2,6 +2,7 @@
 
 import { redirect } from "next/navigation";
 import { createSession, destroySession, registerOrganization, signIn } from "@/lib/auth";
+import { sendVerificationEmail } from "@/lib/email";
 import { clearSessionCookie, readSessionToken, setSessionCookie } from "@/lib/session";
 
 export type FormState = { error: string } | null;
@@ -24,17 +25,25 @@ export async function signUpAction(_prev: FormState, data: FormData): Promise<Fo
     return { error: "Пароль должен быть не короче 8 символов." };
   }
 
-  let userId: string;
+  let verificationEmail: string;
+  let verificationToken: string;
   try {
     const { user } = await registerOrganization({ organizationName, email, password, name });
-    userId = user.id;
+    verificationEmail = user.email;
+    // Только что создан registerOrganization-ом, токен точно есть.
+    verificationToken = user.verificationToken!;
   } catch (error) {
     const message = error instanceof Error ? error.message : "Не удалось создать кабинет.";
     return { error: message };
   }
 
-  await setSessionCookie(await createSession(userId));
-  redirect("/");
+  try {
+    await sendVerificationEmail(verificationEmail, verificationToken);
+  } catch {
+    return { error: "Кабинет создан, но письмо с подтверждением не отправилось. Попробуйте войти позже." };
+  }
+
+  redirect(`/verify-email/sent?email=${encodeURIComponent(verificationEmail)}`);
 }
 
 export async function signInAction(_prev: FormState, data: FormData): Promise<FormState> {
@@ -51,9 +60,12 @@ export async function signInAction(_prev: FormState, data: FormData): Promise<Fo
   if (!user) {
     return { error: "Неверная почта или пароль." };
   }
+  if (!user.emailVerifiedAt) {
+    return { error: "Подтвердите почту по ссылке из письма — мы прислали её при регистрации." };
+  }
 
   await setSessionCookie(await createSession(user.id));
-  redirect("/");
+  redirect("/inbox");
 }
 
 export async function signOutAction(): Promise<void> {

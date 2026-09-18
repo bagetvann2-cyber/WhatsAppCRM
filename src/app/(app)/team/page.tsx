@@ -28,7 +28,7 @@ export default async function TeamPage() {
 
   // Оператору здесь нечего делать: команда — управляющий раздел.
   if (!canManageTeam(role)) {
-    redirect("/");
+    redirect("/inbox");
   }
 
   const [members, invites] = await Promise.all([

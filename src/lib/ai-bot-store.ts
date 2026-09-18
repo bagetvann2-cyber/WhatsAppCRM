@@ -1,7 +1,9 @@
 import { prisma } from "@/lib/db";
 import { askBot, type ChatTurn } from "@/lib/ai-client";
 import { shouldBotReply, type BotSettings } from "@/lib/ai-bot";
-import { sendTextMessage } from "@/lib/whatsapp/client";
+import { isReplyWindowOpen } from "@/lib/conversation-window";
+import { sendChannelText } from "@/lib/channels";
+import { getOrderFields, upsertDraftOrderFields } from "@/lib/orders-store";
 
 /** Сколько последних сообщений диалога уходит боту как контекст. */
 const HISTORY_DEPTH = 12;
@@ -65,7 +67,8 @@ export type BotRun =
 export async function runAiBot(input: {
   organizationId: string;
   conversationId: string;
-  waId: string;
+  /** Адресат в терминах канала: номер телефона у WhatsApp, chat_id у Telegram. */
+  to: string;
 }): Promise<BotRun> {
   const settings = await getBot(input.organizationId);
 
@@ -73,6 +76,8 @@ export async function runAiBot(input: {
     where: { id: input.conversationId },
     select: {
       handedOffAt: true,
+      windowExpiresAt: true,
+      channel: true,
       messages: {
         orderBy: { timestamp: "desc" },
         take: HISTORY_DEPTH,
@@ -88,6 +93,12 @@ export async function runAiBot(input: {
   const decision = shouldBotReply({ settings, handedOffAt: conversation.handedOffAt });
   if (!decision.reply) {
     return { status: "skipped", reason: decision.reason };
+  }
+
+  // Вне 24-часового окна WhatsApp не даст отправить свободный текст — бот
+  // тихо промолчит, а не потратит пакет ответов на заведомо неотправляемое.
+  if (!isReplyWindowOpen(conversation.channel, conversation)) {
+    return { status: "skipped", reason: "window-closed" };
   }
 
   // История приходит от свежих к старым — боту нужен обычный порядок.
@@ -108,6 +119,7 @@ export async function runAiBot(input: {
   }
 
   const question = [...history].reverse().find((turn) => turn.role === "user")?.text ?? "";
+  const orderFields = await getOrderFields(input.organizationId);
 
   try {
     const result = await askBot({
@@ -115,6 +127,7 @@ export async function runAiBot(input: {
       companyProfile: settings.companyProfile,
       rules: settings.rules,
       history,
+      orderFields,
     });
 
     // Ответ засчитывается в пакет независимо от исхода: запрос оплачен в любом случае.
@@ -137,6 +150,17 @@ export async function runAiBot(input: {
       },
     });
 
+    if (result.orderFields) {
+      // Черновик заказа — побочная запись, её сбой не должен портить уже
+      // готовый ответ клиенту.
+      await upsertDraftOrderFields({
+        organizationId: input.organizationId,
+        conversationId: input.conversationId,
+        fields: result.orderFields,
+        fieldDefs: orderFields,
+      }).catch(() => {});
+    }
+
     if (result.handoff) {
       await prisma.conversation.update({
         where: { id: input.conversationId },
@@ -145,12 +169,17 @@ export async function runAiBot(input: {
     }
 
     if (result.answer) {
-      const { wamid } = await sendTextMessage(input.waId, result.answer);
+      const { externalMessageId } = await sendChannelText({
+        channel: conversation.channel,
+        to: input.to,
+        text: result.answer,
+      });
       const now = new Date();
 
       await prisma.message.create({
         data: {
-          wamid,
+          externalMessageId,
+          channelId: conversation.channel.id,
           conversationId: input.conversationId,
           direction: "OUTBOUND",
           type: "text",
