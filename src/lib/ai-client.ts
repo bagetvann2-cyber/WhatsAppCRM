@@ -1,29 +1,19 @@
-import Anthropic from "@anthropic-ai/sdk";
 import { buildSystemPrompt } from "@/lib/ai-bot";
+import { env } from "@/lib/env";
+import { LlmError, complete } from "@/lib/llm";
+import type { ChatTurn, ProviderId, ToolDef } from "@/lib/llm/types";
 import type { OrderFieldDef } from "@/lib/orders";
 
-/** Клиент создаётся лениво: без ключа приложение должно запускаться и работать. */
-let client: Anthropic | null = null;
+export type { ChatTurn } from "@/lib/llm/types";
 
-function anthropic(): Anthropic {
-  if (!client) {
-    const apiKey = process.env.ANTHROPIC_API_KEY;
-    if (!apiKey) {
-      throw new Error("Не задан ANTHROPIC_API_KEY — ИИ-помощник не может отвечать.");
-    }
-    client = new Anthropic({ apiKey });
-  }
-  return client;
-}
-
-const HANDOFF_TOOL = {
+const HANDOFF_TOOL: ToolDef = {
   name: "handoff_to_operator",
   description:
     "Передать диалог живому сотруднику. Вызывайте, когда клиент просит человека, " +
     "жалуется, спрашивает про сумму или срок, которых нет в анкете, или когда " +
     "вы не уверены в ответе. Передать человеку лучше, чем ответить неверно.",
-  input_schema: {
-    type: "object" as const,
+  parameters: {
+    type: "object",
     properties: {
       reason: {
         type: "string",
@@ -35,7 +25,7 @@ const HANDOFF_TOOL = {
 };
 
 /** Инструмент собирается на каждый вызов: у каждой организации своя схема полей. */
-function buildOrderTool(fields: OrderFieldDef[]) {
+function buildOrderTool(fields: OrderFieldDef[]): ToolDef {
   const properties: Record<string, { type: string; description: string; enum?: string[] }> = {};
 
   for (const field of fields) {
@@ -57,14 +47,9 @@ function buildOrderTool(fields: OrderFieldDef[]) {
       "каждый раз, когда в переписке появляются новые сведения о заказе — не дожидайтесь, " +
       "пока клиент назовёт всё сразу, и не переспрашивайте то, что он уже сказал. Передавайте " +
       "только те поля, которые узнали или уточнили в этом сообщении.",
-    input_schema: {
-      type: "object" as const,
-      properties,
-    },
+    parameters: { type: "object", properties },
   };
 }
-
-export type ChatTurn = { role: "user" | "assistant"; text: string };
 
 export type BotAnswer = {
   answer: string | null;
@@ -72,17 +57,22 @@ export type BotAnswer = {
   handoffReason: string | null;
   /** Поля заказа, которые бот узнал в этом ответе (частично, накопительно). */
   orderFields: Record<string, unknown> | null;
+  /** Токены в форме журнала: вход без кэша, кэш отдельно. */
   inputTokens: number;
   cachedTokens: number;
   outputTokens: number;
+  provider: ProviderId;
+  model: string;
+  latencyMs: number;
 };
 
 /**
- * Спрашивает Claude, что ответить клиенту.
+ * Спрашивает нейросеть, что ответить клиенту.
  *
- * Анкета компании уходит системным блоком с пометкой кэширования: она
- * не меняется от запроса к запросу, и повторное чтение стоит примерно
- * в десять раз дешевле. Переменная часть — история диалога — идёт после.
+ * Анкета компании уходит системным блоком: она не меняется от запроса к запросу,
+ * у Claude она кэшируется (повторное чтение примерно в десять раз дешевле),
+ * а OpenAI и Gemini кэшируют длинный стабильный префикс сами. Переменная часть,
+ * история диалога, идёт после.
  */
 export async function askBot(input: {
   model: string;
@@ -90,61 +80,54 @@ export async function askBot(input: {
   rules: string | null;
   history: ChatTurn[];
   orderFields?: OrderFieldDef[];
+  provider?: ProviderId;
+  /** Ключ клиента. Без него берём ключ платформы. */
+  apiKey?: string;
 }): Promise<BotAnswer> {
-  const system = buildSystemPrompt({
-    companyProfile: input.companyProfile,
-    rules: input.rules,
-  });
+  const provider = input.provider ?? "ANTHROPIC";
+  const apiKey = input.apiKey ?? env.platformKey(provider);
+  if (!apiKey) {
+    throw new LlmError("config", false);
+  }
 
-  const tools = [HANDOFF_TOOL, ...(input.orderFields?.length ? [buildOrderTool(input.orderFields)] : [])];
+  const result = await complete(
+    {
+      model: input.model,
+      system: buildSystemPrompt({ companyProfile: input.companyProfile, rules: input.rules }),
+      messages: input.history,
+      tools: [HANDOFF_TOOL, ...(input.orderFields?.length ? [buildOrderTool(input.orderFields)] : [])],
+      maxTokens: 1024,
+      // Модель сохранила заказ и промолчала: клиенту всё равно нужен ответ.
+      followUp: { ack: "Сохранено.", skipIfCalled: [HANDOFF_TOOL.name] },
+    },
+    { provider, apiKey, ownKey: input.apiKey !== undefined },
+  );
 
-  const response = await anthropic().messages.create({
-    model: input.model,
-    max_tokens: 1024,
-    // Низкое усилие: это короткий ответ в мессенджере, клиент ждёт секунды.
-    // Мышление при этом не отключаем — с выключенным моделью иногда пишет
-    // вызов инструмента текстом, и передача оператору молча не срабатывает.
-    output_config: { effort: "low" },
-    system: [
-      {
-        type: "text",
-        text: system,
-        cache_control: { type: "ephemeral" },
-      },
-    ],
-    tools,
-    messages: input.history.map((turn) => ({
-      role: turn.role,
-      content: turn.text,
-    })),
-  });
-
-  let answer: string | null = null;
   let handoff = false;
   let handoffReason: string | null = null;
   let orderFields: Record<string, unknown> | null = null;
 
-  for (const block of response.content) {
-    if (block.type === "text" && block.text.trim()) {
-      answer = (answer ? `${answer}\n\n` : "") + block.text.trim();
-    }
-    if (block.type === "tool_use" && block.name === "handoff_to_operator") {
+  for (const call of result.toolCalls) {
+    if (call.name === HANDOFF_TOOL.name) {
       handoff = true;
-      const reason = (block.input as { reason?: string })?.reason;
+      const reason = call.input.reason;
       handoffReason = typeof reason === "string" ? reason : null;
     }
-    if (block.type === "tool_use" && block.name === "save_order") {
-      orderFields = { ...(orderFields ?? {}), ...(block.input as Record<string, unknown>) };
+    if (call.name === "save_order") {
+      orderFields = { ...(orderFields ?? {}), ...call.input };
     }
   }
 
   return {
-    answer,
+    answer: result.text,
     handoff,
     handoffReason,
     orderFields,
-    inputTokens: response.usage.input_tokens,
-    cachedTokens: response.usage.cache_read_input_tokens ?? 0,
-    outputTokens: response.usage.output_tokens,
+    inputTokens: result.usage.input - result.usage.cached,
+    cachedTokens: result.usage.cached,
+    outputTokens: result.usage.output,
+    provider,
+    model: input.model,
+    latencyMs: result.latencyMs,
   };
 }

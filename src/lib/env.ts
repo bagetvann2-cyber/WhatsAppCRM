@@ -1,3 +1,5 @@
+import type { ProviderId } from "@/lib/llm/types";
+
 function required(name: string): string {
   const value = process.env[name];
   if (!value) {
@@ -20,6 +22,9 @@ export const env = {
   graphVersion: () => process.env.GRAPH_API_VERSION ?? "v22.0",
   encryptionKey: () => required("ENCRYPTION_KEY"),
   publicBaseUrl: () => process.env.PUBLIC_BASE_URL ?? "",
+  /** Ключи платформы для нейросетей. Не бросает: без ключа провайдер просто недоступен на нашем счёте. */
+  platformKey: (provider: ProviderId): string | null =>
+    process.env[{ ANTHROPIC: "ANTHROPIC_API_KEY", OPENAI: "OPENAI_API_KEY", GEMINI: "GEMINI_API_KEY", OPENROUTER: "" }[provider]] || null,
   resendApiKey: () => required("RESEND_API_KEY"),
   /// До верификации домена в Resend можно слать только на свою же почту аккаунта —
   /// для чужих писем нужен verified-домен и адрес на нём.
