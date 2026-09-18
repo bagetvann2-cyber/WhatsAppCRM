@@ -1,10 +1,12 @@
 "use client";
 
-import { useActionState, useState } from "react";
+import { useActionState, useRef, useState } from "react";
+import Link from "next/link";
 import { AlertIcon, BoltIcon } from "@/components/icons";
 import { saveBotAction, testBotAction, type FormState, type TestState } from "@/app/(app)/ai-bot/actions";
 import { DEFAULT_STUB, DEFAULT_STUB_KZ, MAX_STUB_CHARS, answersLeft } from "@/lib/ai-bot";
 import { MODELS } from "@/lib/llm/catalog";
+import { PLACEHOLDER_PATTERN, PROFILE_PRESETS, findPreset } from "@/lib/profile-presets";
 
 // На нашем ключе доступны только «платформенные» модели каталога.
 const PLATFORM_MODELS = MODELS.ANTHROPIC.filter((model) => model.platform);
@@ -36,6 +38,8 @@ export function AiBotForm({
     resetsAt: string;
     stubText: string | null;
     stubTextKz: string | null;
+    /** У организации уже настроены поля заказа: галочку «создать поля» не предлагаем. */
+    hasOrderFields: boolean;
   };
 }) {
   const [state, formAction, pending] = useActionState<FormState, FormData>(saveBotAction, null);
@@ -43,6 +47,51 @@ export function AiBotForm({
 
   const [enabled, setEnabled] = useState(initial.enabled);
   const [model, setModel] = useState(initial.model);
+  const [profile, setProfile] = useState(initial.companyProfile);
+  const [rules, setRules] = useState(initial.rules ?? "");
+  const [presetId, setPresetId] = useState("");
+  const [applyFields, setApplyFields] = useState(!initial.hasOrderFields);
+  // Что было в полях до замены готовой анкетой: одно нажатие возвращает.
+  const [undo, setUndo] = useState<{ profile: string; rules: string; title: string } | null>(null);
+  const profileRef = useRef<HTMLTextAreaElement>(null);
+  const rulesRef = useRef<HTMLTextAreaElement>(null);
+  const nextPlaceholder = useRef(0);
+
+  function pickPreset(id: string) {
+    const preset = findPreset(id);
+    if (!preset) {
+      return;
+    }
+    setUndo({ profile, rules, title: preset.title });
+    setProfile(preset.companyProfile);
+    setRules(preset.rules);
+    setPresetId(preset.id);
+    nextPlaceholder.current = 0;
+  }
+
+  function restore() {
+    if (!undo) {
+      return;
+    }
+    setProfile(undo.profile);
+    setRules(undo.rules);
+    setPresetId("");
+    setUndo(null);
+  }
+
+  // Места «[уточните: …]» в анкете и в правилах, по порядку.
+  const placeholders = [
+    ...[...profile.matchAll(PLACEHOLDER_PATTERN)].map((m) => ({ field: "profile" as const, start: m.index, end: m.index + m[0].length })),
+    ...[...rules.matchAll(PLACEHOLDER_PATTERN)].map((m) => ({ field: "rules" as const, start: m.index, end: m.index + m[0].length })),
+  ];
+
+  function selectNextPlaceholder() {
+    const target = placeholders[nextPlaceholder.current % placeholders.length];
+    nextPlaceholder.current += 1;
+    const textarea = (target.field === "profile" ? profileRef : rulesRef).current;
+    textarea?.focus();
+    textarea?.setSelectionRange(target.start, target.end);
+  }
 
   const modelHint = PLATFORM_MODELS.find((m) => m.id === model)?.hint;
   const left = answersLeft({ answersLimit: initial.answersLimit, answersUsed: initial.answersUsed });
@@ -65,11 +114,40 @@ export function AiBotForm({
           вне рабочих часов имеют приоритет: если сработали они, помощник промолчит.
         </p>
 
+        <div className="flex flex-col gap-1.5">
+          <label htmlFor="preset" className="text-sm font-medium text-ink">
+            Начните с готовой анкеты <span className="font-normal text-ink-faint">— необязательно</span>
+          </label>
+          <select
+            id="preset"
+            value=""
+            onChange={(e) => pickPreset(e.target.value)}
+            className={INPUT}
+          >
+            <option value="">Выберите вашу нишу…</option>
+            {PROFILE_PRESETS.map((preset) => (
+              <option key={preset.id} value={preset.id}>
+                {preset.title}
+              </option>
+            ))}
+          </select>
+          {undo && (
+            <p className="flex flex-wrap items-center gap-x-3 text-sm text-ink-muted">
+              Анкета заменена готовой «{undo.title}».
+              <button type="button" onClick={restore} className="min-h-11 font-medium text-accent underline md:min-h-0">
+                Вернуть как было
+              </button>
+            </p>
+          )}
+        </div>
+
         <label className="flex flex-col gap-1.5">
           <span className="text-sm font-medium text-ink">Анкета компании</span>
           <textarea
+            ref={profileRef}
             name="companyProfile"
-            defaultValue={initial.companyProfile}
+            value={profile}
+            onChange={(e) => setProfile(e.target.value)}
             rows={12}
             placeholder={PROFILE_PLACEHOLDER}
             className={`${INPUT} resize-y font-[inherit]`}
@@ -80,13 +158,45 @@ export function AiBotForm({
           </span>
         </label>
 
+        {placeholders.length > 0 && (
+          <p className="flex flex-wrap items-center gap-x-3 rounded-lg bg-warn-soft px-3 py-2 text-sm text-warn">
+            Осталось заполнить мест «[уточните: …]»: {placeholders.length}. Пока они есть, помощник не включится.
+            <button type="button" onClick={selectNextPlaceholder} className="min-h-11 font-medium underline md:min-h-0">
+              Следующее →
+            </button>
+          </p>
+        )}
+
+        {presetId && (
+          <label className={`flex items-start gap-2.5 text-sm ${initial.hasOrderFields ? "text-ink-faint" : "cursor-pointer text-ink"}`}>
+            <input
+              type="checkbox"
+              name="applyOrderFields"
+              checked={applyFields && !initial.hasOrderFields}
+              disabled={initial.hasOrderFields}
+              onChange={(e) => setApplyFields(e.target.checked)}
+              className="mt-0.5 size-4 accent-[var(--accent)]"
+            />
+            <span>
+              {initial.hasOrderFields ? (
+                <>Поля заказа уже настроены, готовая анкета их не тронет. <Link href="/orders" className="underline">Открыть поля заказа</Link></>
+              ) : (
+                "Создать поля заказа из готовой анкеты (имя, адрес и другое под вашу нишу)"
+              )}
+            </span>
+          </label>
+        )}
+        <input type="hidden" name="presetId" value={presetId} />
+
         <label className="flex flex-col gap-1.5">
           <span className="text-sm font-medium text-ink">
             Чего не обещать <span className="font-normal text-ink-faint">— необязательно</span>
           </span>
           <textarea
+            ref={rulesRef}
             name="rules"
-            defaultValue={initial.rules ?? ""}
+            value={rules}
+            onChange={(e) => setRules(e.target.value)}
             rows={3}
             placeholder="Скидок не обещать. Точное время записи подтверждает администратор."
             className={`${INPUT} resize-y`}

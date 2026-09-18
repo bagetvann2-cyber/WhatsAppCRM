@@ -4,6 +4,7 @@ import { AlertIcon } from "@/components/icons";
 import { Empty, Group, GroupTitle, PageHead } from "@/components/ledger";
 import { REASON_LABEL } from "@/lib/ai-bot";
 import { getBot, listReplies } from "@/lib/ai-bot-store";
+import { getOrderFields } from "@/lib/orders-store";
 import { PROVIDER_INFO, findModel } from "@/lib/llm/catalog";
 import { requireUser } from "@/lib/session";
 import { canManageTeam } from "@/lib/team";
@@ -18,9 +19,10 @@ export default async function AiBotPage() {
     redirect("/inbox");
   }
 
-  const [settings, replies] = await Promise.all([
+  const [settings, replies, orderFields] = await Promise.all([
     getBot(organization.id),
     listReplies(organization.id),
+    getOrderFields(organization.id),
   ]);
 
   return (
@@ -42,6 +44,7 @@ export default async function AiBotPage() {
           resetsAt: settings.periodResetsAt.toLocaleDateString("ru-RU", { day: "numeric", month: "long" }),
           stubText: settings.stubText ?? null,
           stubTextKz: settings.stubTextKz ?? null,
+          hasOrderFields: orderFields.length > 0,
         }}
       />
 

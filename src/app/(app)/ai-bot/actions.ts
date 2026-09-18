@@ -6,6 +6,8 @@ import { canManageTeam } from "@/lib/team";
 import { MAX_PROFILE_CHARS, MAX_STUB_CHARS, TEST_CHAT_LIMIT } from "@/lib/ai-bot";
 import { finishUsage, getBot, reserveTestUsage, saveBot } from "@/lib/ai-bot-store";
 import { askBot } from "@/lib/ai-client";
+import { getOrderFields, saveOrderFields } from "@/lib/orders-store";
+import { findPlaceholders, findPreset } from "@/lib/profile-presets";
 
 export type FormState = { error: string } | { ok: string } | null;
 export type TestState = { error: string } | { answer: string; handoff: string | null } | null;
@@ -37,8 +39,15 @@ export async function saveBotAction(_prev: FormState, data: FormData): Promise<F
     return { error: `Текст для клиента не длиннее ${MAX_STUB_CHARS} символов.` };
   }
 
+  // Иначе бот честно напишет клиенту «доставка стоит [уточните: цена доставки]».
+  const enabled = data.get("enabled") === "on";
+  const unfilled = findPlaceholders(profile, rules).length;
+  if (enabled && unfilled > 0) {
+    return { error: `Помощник сейчас отвечает клиентам — сначала заполните места «[уточните: …]»: ${unfilled}.` };
+  }
+
   await saveBot(organization.id, {
-    enabled: data.get("enabled") === "on",
+    enabled,
     model: text(data, "model") || "claude-sonnet-5",
     companyProfile: profile,
     rules,
@@ -46,8 +55,17 @@ export async function saveBotAction(_prev: FormState, data: FormData): Promise<F
     stubTextKz,
   });
 
+  // Поля заказа из готовой анкеты: только если у организации своих ещё нет, чужие не затираем.
+  const preset = data.get("applyOrderFields") === "on" ? findPreset(text(data, "presetId")) : undefined;
+  if (preset && (await getOrderFields(organization.id)).length === 0) {
+    await saveOrderFields(organization.id, preset.orderFields);
+  }
+
   revalidatePath("/ai-bot");
-  return { ok: "Настройки сохранены." };
+  revalidatePath("/orders");
+  return {
+    ok: unfilled > 0 ? `Сохранено. Помощник не включён: осталось заполнить мест — ${unfilled}.` : "Настройки сохранены.",
+  };
 }
 
 /**
