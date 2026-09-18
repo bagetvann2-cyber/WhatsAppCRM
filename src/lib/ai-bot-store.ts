@@ -3,18 +3,25 @@ import { askBot, type ChatTurn } from "@/lib/ai-client";
 import { shouldBotReply, type BotSettings } from "@/lib/ai-bot";
 import { isReplyWindowOpen } from "@/lib/conversation-window";
 import { sendChannelText } from "@/lib/channels";
+import { defaultModel, resolveModel } from "@/lib/llm/catalog";
+import type { ProviderId } from "@/lib/llm/types";
 import { getOrderFields, upsertDraftOrderFields } from "@/lib/orders-store";
 
 /** Сколько последних сообщений диалога уходит боту как контекст. */
 const HISTORY_DEPTH = 12;
 
-export async function getBot(organizationId: string): Promise<BotSettings & { exists: boolean }> {
+export async function getBot(
+  organizationId: string,
+): Promise<BotSettings & { exists: boolean; provider: ProviderId }> {
   const stored = await prisma.aiBot.findUnique({ where: { organizationId } });
+  const provider = stored?.provider ?? "ANTHROPIC";
 
   return {
     exists: stored !== null,
+    provider,
     enabled: stored?.enabled ?? false,
-    model: stored?.model ?? "claude-opus-5",
+    // null в базе — «модель каталога по умолчанию»; наружу отдаём уже конкретную.
+    model: resolveModel(provider, stored?.model ?? null) ?? "",
     companyProfile: stored?.companyProfile ?? "",
     rules: stored?.rules ?? null,
     answersLimit: stored?.answersLimit ?? 100,
@@ -28,7 +35,8 @@ export async function saveBot(
 ): Promise<void> {
   const data = {
     enabled: settings.enabled,
-    model: settings.model,
+    // Модель по умолчанию храним как null: смена победителя замера не должна требовать миграции.
+    model: settings.model === defaultModel("ANTHROPIC") ? null : settings.model,
     companyProfile: settings.companyProfile.trim(),
     rules: settings.rules?.trim() || null,
     answersLimit: settings.answersLimit,
@@ -123,6 +131,7 @@ export async function runAiBot(input: {
 
   try {
     const result = await askBot({
+      provider: settings.provider,
       model: settings.model,
       companyProfile: settings.companyProfile,
       rules: settings.rules,
@@ -147,6 +156,9 @@ export async function runAiBot(input: {
         inputTokens: result.inputTokens,
         cachedTokens: result.cachedTokens,
         outputTokens: result.outputTokens,
+        provider: settings.provider,
+        model: settings.model,
+        latencyMs: result.latencyMs,
       },
     });
 
@@ -208,6 +220,8 @@ export async function runAiBot(input: {
         conversationId: input.conversationId,
         question,
         error: message,
+        provider: settings.provider,
+        model: settings.model,
       },
     });
 

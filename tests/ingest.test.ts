@@ -96,22 +96,26 @@ test("второе сообщение попадает в тот же диало
 });
 
 test("одинаковый номер клиента в разных компаниях — разные контакты", async () => {
+  // Остаток от оборвавшегося прогона иначе ломает этот тест на уникальном номере навсегда.
+  await dropTestOrg("PNID-INGEST-2");
   const other = await createTestOrg("PNID-INGEST-2", "Вторая компания");
 
-  await saveIncomingMessage(base);
-  await saveIncomingMessage({
-    ...base,
-    externalMessageId: "wamid.INGEST.OTHER",
-    channelExternalId: "PNID-INGEST-2",
-  });
+  try {
+    await saveIncomingMessage(base);
+    await saveIncomingMessage({
+      ...base,
+      externalMessageId: "wamid.INGEST.OTHER",
+      channelExternalId: "PNID-INGEST-2",
+    });
 
-  const contacts = await prisma.contact.findMany({ where: { externalUserId: waId } });
-  expect(contacts).toHaveLength(2);
-  expect(new Set(contacts.map((c) => c.organizationId))).toEqual(
-    new Set([organizationId, other.id]),
-  );
-
-  await dropTestOrg("PNID-INGEST-2");
+    const contacts = await prisma.contact.findMany({ where: { externalUserId: waId } });
+    expect(contacts).toHaveLength(2);
+    expect(new Set(contacts.map((c) => c.organizationId))).toEqual(
+      new Set([organizationId, other.id]),
+    );
+  } finally {
+    await dropTestOrg("PNID-INGEST-2");
+  }
 });
 
 test("статус доставки записывается в сообщение", async () => {
