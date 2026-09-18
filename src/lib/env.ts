@@ -20,6 +20,10 @@ export const env = {
   graphVersion: () => process.env.GRAPH_API_VERSION ?? "v22.0",
   encryptionKey: () => required("ENCRYPTION_KEY"),
   publicBaseUrl: () => process.env.PUBLIC_BASE_URL ?? "",
+  resendApiKey: () => required("RESEND_API_KEY"),
+  /// До верификации домена в Resend можно слать только на свою же почту аккаунта —
+  /// для чужих писем нужен verified-домен и адрес на нём.
+  emailFrom: () => process.env.EMAIL_FROM ?? "WhatsApp CRM <onboarding@resend.dev>",
   /** Где лежат копии вложений. На сервере заказчика это будет отдельный диск. */
   mediaDir: () => process.env.MEDIA_DIR ?? "storage/media",
   /** Потолок размера файла: и на скачивание, и на отправку. */

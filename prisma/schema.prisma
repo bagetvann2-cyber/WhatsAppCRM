@@ -425,6 +425,10 @@ model User {
   passwordHash String
   name         String?
   createdAt    DateTime       @default(now())
+  /// Пока null — вход запрещён, см. signInAction.
+  emailVerifiedAt            DateTime?
+  verificationToken          String?   @unique
+  verificationTokenExpiresAt DateTime?
   memberships  Membership[]
   sessions     Session[]
   assigned     Conversation[]
