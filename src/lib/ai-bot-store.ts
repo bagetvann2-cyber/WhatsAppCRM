@@ -476,15 +476,21 @@ export async function reserveTestUsage(
   lifetime: boolean,
   provider: ProviderId,
   model: string,
+  kind: "TEST" | "GENERATOR" = "TEST",
 ): Promise<string | null> {
-  const used = await prisma.aiUsage.count({
-    where: { organizationId, kind: "TEST", ...(lifetime ? {} : { createdAt: { gte: startOfDayAlmaty() } }) },
-  });
+  const used = await countUsage(organizationId, kind, lifetime);
   if (used >= limit) {
     return null;
   }
-  const row = await prisma.aiUsage.create({ data: { organizationId, kind: "TEST", provider, model } });
+  const row = await prisma.aiUsage.create({ data: { organizationId, kind, provider, model } });
   return row.id;
+}
+
+/** Сколько вызовов этого вида уже сделано: за сегодня или, до пробного периода, за всё время. */
+export function countUsage(organizationId: string, kind: "TEST" | "GENERATOR", lifetime: boolean): Promise<number> {
+  return prisma.aiUsage.count({
+    where: { organizationId, kind, ...(lifetime ? {} : { createdAt: { gte: startOfDayAlmaty() } }) },
+  });
 }
 
 export async function finishUsage(

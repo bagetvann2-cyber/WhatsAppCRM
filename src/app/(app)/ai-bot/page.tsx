@@ -3,7 +3,8 @@ import { AiBotForm } from "@/components/AiBotForm";
 import { AlertIcon } from "@/components/icons";
 import { Empty, Group, GroupTitle, PageHead } from "@/components/ledger";
 import { REASON_LABEL } from "@/lib/ai-bot";
-import { getBot, listReplies } from "@/lib/ai-bot-store";
+import { countUsage, getBot, listReplies } from "@/lib/ai-bot-store";
+import { GENERATOR_LIMIT } from "@/lib/profile-generator";
 import { getOrderFields } from "@/lib/orders-store";
 import { PROVIDER_INFO, findModel } from "@/lib/llm/catalog";
 import { requireUser } from "@/lib/session";
@@ -24,6 +25,7 @@ export default async function AiBotPage() {
     listReplies(organization.id),
     getOrderFields(organization.id),
   ]);
+  const generatorUsed = await countUsage(organization.id, "GENERATOR", settings.trialNotStarted);
 
   return (
     <main className="mx-auto max-w-3xl px-4 py-8 md:px-6">
@@ -45,6 +47,9 @@ export default async function AiBotPage() {
           stubText: settings.stubText ?? null,
           stubTextKz: settings.stubTextKz ?? null,
           hasOrderFields: orderFields.length > 0,
+          generatorLeft: Math.max(0, GENERATOR_LIMIT - generatorUsed),
+          generatorLimit: GENERATOR_LIMIT,
+          canGenerate: settings.subscriptionActive,
         }}
       />
 

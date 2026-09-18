@@ -4,7 +4,18 @@ import { revalidatePath } from "next/cache";
 import { requireUser } from "@/lib/session";
 import { canManageTeam } from "@/lib/team";
 import { MAX_PROFILE_CHARS, MAX_STUB_CHARS, TEST_CHAT_LIMIT } from "@/lib/ai-bot";
-import { finishUsage, getBot, reserveTestUsage, saveBot } from "@/lib/ai-bot-store";
+import {
+  BadGeneratorAnswer,
+  GENERATOR_LIMIT,
+  MAX_DESCRIPTION_CHARS,
+  MIN_DESCRIPTION_CHARS,
+  generateProfile,
+  sanitizeOrderFields,
+  type GeneratedProfile,
+} from "@/lib/profile-generator";
+import { LlmError } from "@/lib/llm";
+import { defaultModel } from "@/lib/llm/catalog";
+import { countUsage, finishUsage, getBot, reserveTestUsage, saveBot } from "@/lib/ai-bot-store";
 import { askBot } from "@/lib/ai-client";
 import { getOrderFields, saveOrderFields } from "@/lib/orders-store";
 import { findPlaceholders, findPreset } from "@/lib/profile-presets";
@@ -56,9 +67,19 @@ export async function saveBotAction(_prev: FormState, data: FormData): Promise<F
   });
 
   // Поля заказа из готовой анкеты: только если у организации своих ещё нет, чужие не затираем.
-  const preset = data.get("applyOrderFields") === "on" ? findPreset(text(data, "presetId")) : undefined;
-  if (preset && (await getOrderFields(organization.id)).length === 0) {
-    await saveOrderFields(organization.id, preset.orderFields);
+  if (data.get("applyOrderFields") === "on" && (await getOrderFields(organization.id)).length === 0) {
+    // Поля берём у готовой анкеты или из того, что собрал генератор; присланное браузером чистим.
+    let proposed = findPreset(text(data, "presetId"))?.orderFields;
+    if (!proposed) {
+      try {
+        proposed = sanitizeOrderFields(JSON.parse(text(data, "generatedFields") || "[]"));
+      } catch {
+        proposed = [];
+      }
+    }
+    if (proposed.length > 0) {
+      await saveOrderFields(organization.id, proposed);
+    }
   }
 
   revalidatePath("/ai-bot");
@@ -126,6 +147,53 @@ export async function testBotAction(_prev: TestState, data: FormData): Promise<T
     };
   } catch (error) {
     const message = error instanceof Error ? error.message : "Не удалось получить ответ.";
+    await finishUsage(usageId, { error: message });
+    return { error: message };
+  }
+}
+
+export type GenerateState = { error: string } | ({ left: number } & GeneratedProfile);
+
+/**
+ * Собирает анкету из описания владельца на нашем ключе. Ничего не сохраняет: результат
+ * заполняет поля формы, владелец правит и жмёт «Сохранить».
+ */
+export async function generateProfileAction(description: string): Promise<GenerateState> {
+  const { organization, role } = await requireUser();
+  if (!canManageTeam(role)) {
+    return { error: "Доступно владельцу или администратору." };
+  }
+
+  const text = description.trim();
+  if (text.length < MIN_DESCRIPTION_CHARS) {
+    return { error: `Опишите бизнес подробнее: хотя бы ${MIN_DESCRIPTION_CHARS} символов.` };
+  }
+  if (text.length > MAX_DESCRIPTION_CHARS) {
+    return { error: `Описание не длиннее ${MAX_DESCRIPTION_CHARS} символов.` };
+  }
+
+  const settings = await getBot(organization.id);
+  if (!settings.subscriptionActive) {
+    return { error: "Подписка не оплачена: генератор недоступен." };
+  }
+
+  // Запись до вызова: упавший провайдер иначе можно дёргать в обход лимита.
+  const usageId = await reserveTestUsage(organization.id, GENERATOR_LIMIT, settings.trialNotStarted, "ANTHROPIC", defaultModel("ANTHROPIC")!, "GENERATOR");
+  if (!usageId) {
+    return {
+      error: settings.trialNotStarted
+        ? "Сборки анкеты на нашем ключе закончились. Подключите канал — и они снова появятся каждый день."
+        : "На сегодня сборки закончились. Завтра будет новый лимит.",
+    };
+  }
+
+  try {
+    const { profile, inputTokens, outputTokens } = await generateProfile(text, organization.id);
+    await finishUsage(usageId, { inputTokens, outputTokens });
+    const used = await countUsage(organization.id, "GENERATOR", settings.trialNotStarted);
+    return { ...profile, left: Math.max(0, GENERATOR_LIMIT - used) };
+  } catch (error) {
+    const message = error instanceof BadGeneratorAnswer || error instanceof LlmError ? error.message : "Не удалось собрать анкету.";
     await finishUsage(usageId, { error: message });
     return { error: message };
   }

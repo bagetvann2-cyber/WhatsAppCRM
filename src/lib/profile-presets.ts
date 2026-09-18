@@ -1,5 +1,7 @@
 import type { OrderFieldDef } from "@/lib/orders";
 
+export type PresetOrderField = Omit<OrderFieldDef, "id">;
+
 /** Готовая анкета: заготовка текста под нишу. Правится кодом, в базу не выносится. */
 export type ProfilePreset = {
   id: string;
@@ -7,7 +9,7 @@ export type ProfilePreset = {
   companyProfile: string;
   rules: string;
   /** Предлагаемые поля заказа; применяются только если у организации своих ещё нет. */
-  orderFields: Omit<OrderFieldDef, "id">[];
+  orderFields: PresetOrderField[];
 };
 
 const text = (label: string, required = false): Omit<OrderFieldDef, "id"> => ({ label, type: "TEXT", options: null, required });

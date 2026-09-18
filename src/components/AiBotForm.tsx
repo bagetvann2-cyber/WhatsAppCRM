@@ -1,11 +1,12 @@
 "use client";
 
-import { useActionState, useRef, useState } from "react";
+import { useActionState, useRef, useState, useTransition } from "react";
 import Link from "next/link";
 import { AlertIcon, BoltIcon } from "@/components/icons";
-import { saveBotAction, testBotAction, type FormState, type TestState } from "@/app/(app)/ai-bot/actions";
+import { generateProfileAction, saveBotAction, testBotAction, type FormState, type TestState } from "@/app/(app)/ai-bot/actions";
 import { DEFAULT_STUB, DEFAULT_STUB_KZ, MAX_STUB_CHARS, answersLeft } from "@/lib/ai-bot";
 import { MODELS } from "@/lib/llm/catalog";
+import { MAX_DESCRIPTION_CHARS, MIN_DESCRIPTION_CHARS, type GeneratedProfile } from "@/lib/profile-generator";
 import { PLACEHOLDER_PATTERN, PROFILE_PRESETS, findPreset } from "@/lib/profile-presets";
 
 // На нашем ключе доступны только «платформенные» модели каталога.
@@ -40,6 +41,10 @@ export function AiBotForm({
     stubTextKz: string | null;
     /** У организации уже настроены поля заказа: галочку «создать поля» не предлагаем. */
     hasOrderFields: boolean;
+    generatorLeft: number;
+    generatorLimit: number;
+    /** Подписка действует: без неё генератор недоступен. */
+    canGenerate: boolean;
   };
 }) {
   const [state, formAction, pending] = useActionState<FormState, FormData>(saveBotAction, null);
@@ -53,6 +58,11 @@ export function AiBotForm({
   const [applyFields, setApplyFields] = useState(!initial.hasOrderFields);
   // Что было в полях до замены готовой анкетой: одно нажатие возвращает.
   const [undo, setUndo] = useState<{ profile: string; rules: string; title: string } | null>(null);
+  const [description, setDescription] = useState("");
+  const [generated, setGenerated] = useState<GeneratedProfile["orderFields"]>([]);
+  const [genError, setGenError] = useState<string | null>(null);
+  const [generatorLeft, setGeneratorLeft] = useState(initial.generatorLeft);
+  const [generating, startGenerate] = useTransition();
   const profileRef = useRef<HTMLTextAreaElement>(null);
   const rulesRef = useRef<HTMLTextAreaElement>(null);
   const nextPlaceholder = useRef(0);
@@ -66,7 +76,26 @@ export function AiBotForm({
     setProfile(preset.companyProfile);
     setRules(preset.rules);
     setPresetId(preset.id);
+    setGenerated([]);
     nextPlaceholder.current = 0;
+  }
+
+  function generate() {
+    setGenError(null);
+    startGenerate(async () => {
+      const result = await generateProfileAction(description);
+      if ("error" in result) {
+        setGenError(result.error);
+        return;
+      }
+      setUndo({ profile, rules, title: "Собрано ИИ" });
+      setProfile(result.companyProfile);
+      setRules(result.rules);
+      setGenerated(result.orderFields);
+      setPresetId("");
+      setGeneratorLeft(result.left);
+      nextPlaceholder.current = 0;
+    });
   }
 
   function restore() {
@@ -76,6 +105,7 @@ export function AiBotForm({
     setProfile(undo.profile);
     setRules(undo.rules);
     setPresetId("");
+    setGenerated([]);
     setUndo(null);
   }
 
@@ -114,6 +144,50 @@ export function AiBotForm({
           вне рабочих часов имеют приоритет: если сработали они, помощник промолчит.
         </p>
 
+        <details open={!profile.trim()} className="rounded-lg border border-line px-3 py-2.5">
+          <summary className="min-h-11 cursor-pointer text-sm font-medium text-ink md:min-h-0">Собрать анкету с ИИ</summary>
+          <div className="mt-2 flex flex-col gap-2">
+            <label htmlFor="description" className="text-sm text-ink-muted">
+              Опишите бизнес своими словами: что продаёте, цены, адрес, часы, доставка, оплата.
+            </label>
+            <textarea
+              id="description"
+              value={description}
+              onChange={(e) => setDescription(e.target.value)}
+              maxLength={MAX_DESCRIPTION_CHARS}
+              rows={5}
+              disabled={!initial.canGenerate}
+              className={`${INPUT} resize-y`}
+            />
+            {initial.canGenerate ? (
+              <p className="text-xs text-ink-faint">
+                Сборок сегодня осталось: {generatorLeft} из {initial.generatorLimit}. Результат попадёт в поля ниже, сохранять его нужно самим.
+              </p>
+            ) : (
+              <p className="text-sm text-warn">
+                Подписка не оплачена, поэтому генератор недоступен. <Link href="/billing" className="underline">Открыть тарифы</Link>
+              </p>
+            )}
+            {genError && (
+              <p role="alert" className="flex items-start gap-2 rounded-lg bg-danger-soft px-3 py-2 text-sm text-danger">
+                <AlertIcon className="mt-0.5 size-4 shrink-0" />
+                {genError}
+              </p>
+            )}
+            <button
+              type="button"
+              onClick={generate}
+              disabled={generating || !initial.canGenerate || description.trim().length < MIN_DESCRIPTION_CHARS}
+              className="min-h-11 self-start rounded-lg border border-line px-4 py-2 text-sm font-medium text-ink transition-colors hover:border-line-strong hover:bg-panel-muted disabled:opacity-50 md:min-h-0"
+            >
+              {generating ? "Собираем анкету… обычно до 20 секунд" : "Собрать анкету"}
+            </button>
+            {description.trim().length < MIN_DESCRIPTION_CHARS && (
+              <p className="text-xs text-ink-faint">Нужно хотя бы {MIN_DESCRIPTION_CHARS} символов.</p>
+            )}
+          </div>
+        </details>
+
         <div className="flex flex-col gap-1.5">
           <label htmlFor="preset" className="text-sm font-medium text-ink">
             Начните с готовой анкеты <span className="font-normal text-ink-faint">— необязательно</span>
@@ -133,7 +207,7 @@ export function AiBotForm({
           </select>
           {undo && (
             <p className="flex flex-wrap items-center gap-x-3 text-sm text-ink-muted">
-              Анкета заменена готовой «{undo.title}».
+              Анкета заменена на «{undo.title}».
               <button type="button" onClick={restore} className="min-h-11 font-medium text-accent underline md:min-h-0">
                 Вернуть как было
               </button>
@@ -167,7 +241,7 @@ export function AiBotForm({
           </p>
         )}
 
-        {presetId && (
+        {(presetId || generated.length > 0) && (
           <label className={`flex items-start gap-2.5 text-sm ${initial.hasOrderFields ? "text-ink-faint" : "cursor-pointer text-ink"}`}>
             <input
               type="checkbox"
@@ -181,12 +255,13 @@ export function AiBotForm({
               {initial.hasOrderFields ? (
                 <>Поля заказа уже настроены, готовая анкета их не тронет. <Link href="/orders" className="underline">Открыть поля заказа</Link></>
               ) : (
-                "Создать поля заказа из готовой анкеты (имя, адрес и другое под вашу нишу)"
+                "Создать поля заказа под вашу нишу (имя, адрес и другое)"
               )}
             </span>
           </label>
         )}
         <input type="hidden" name="presetId" value={presetId} />
+        <input type="hidden" name="generatedFields" value={JSON.stringify(generated)} />
 
         <label className="flex flex-col gap-1.5">
           <span className="text-sm font-medium text-ink">
