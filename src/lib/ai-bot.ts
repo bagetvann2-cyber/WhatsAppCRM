@@ -28,6 +28,8 @@ export type BotSettings = {
   /** Что уходит клиенту, когда бот не может ответить. Не задано — тексты по умолчанию. */
   stubText?: string | null;
   stubTextKz?: string | null;
+  /** Отвечает на ключе клиента: наш пакет ответов его не касается. */
+  usesOwnKey?: boolean;
 };
 
 /** Верхний предел анкеты вместе с правилами: от него зависит цена каждого ответа. */
@@ -178,7 +180,7 @@ export function shouldBotReply(input: {
   if (input.subscriptionActive === false) {
     return { reply: false, reason: "subscription" };
   }
-  if (settings.answersUsed >= settings.answersLimit) {
+  if (!settings.usesOwnKey && settings.answersUsed >= settings.answersLimit) {
     return { reply: false, reason: "quota" };
   }
   // Диалог уже у человека: бот в него не вмешивается до конца разговора.
@@ -200,6 +202,22 @@ export function answersLeft(settings: Pick<BotSettings, "answersLimit" | "answer
 
 export function estimateCost(answers: number, model: string): number {
   return Math.round(answers * (COST_PER_ANSWER[model] ?? 0));
+}
+
+/** Коды ошибок ключа клиента, которые держатся в AiBot.apiKeyError, пока ключ не заработает. */
+export const KEY_ERROR_CODES = ["auth", "quota", "model", "decrypt"] as const;
+
+function keyErrorText(error: { code: string; providerLabel: string }): string {
+  switch (error.code) {
+    case "decrypt":
+      return "Нужно заново ввести ваш API-ключ.";
+    case "quota":
+      return `Помощник не отвечает: на вашем счёте у ${error.providerLabel} закончились деньги.`;
+    case "model":
+      return "Помощник не отвечает: модель больше недоступна у провайдера, выберите другую.";
+    default:
+      return `Помощник не отвечает: ключ ${error.providerLabel} не работает.`;
+  }
 }
 
 export type AssistantBanner = {
@@ -224,6 +242,8 @@ export function assistantBanner(input: {
   /** Исход последней записи журнала: сбой провайдера держится, пока следующий ответ его не сотрёт. */
   lastOutcome: string | null;
   resetsAt: Date;
+  /** Ключ клиента перестал работать: код из AiBot.apiKeyError и название нейросети. */
+  keyError?: { code: string; providerLabel: string } | null;
 }): AssistantBanner | null {
   const { settings } = input;
   if (!settings.enabled || !settings.companyProfile.trim()) {
@@ -236,7 +256,10 @@ export function assistantBanner(input: {
   if (!input.subscriptionActive) {
     return { text: OUTCOMES.subscription.banner!, action: OUTCOMES.subscription.action, tone: "error" };
   }
-  if (settings.answersUsed >= settings.answersLimit) {
+  if (settings.usesOwnKey && input.keyError) {
+    return { text: keyErrorText(input.keyError), action: { label: "Открыть настройки", href: "/ai-bot" }, tone: "error" };
+  }
+  if (!settings.usesOwnKey && settings.answersUsed >= settings.answersLimit) {
     return { text: OUTCOMES.quota.banner!, action: OUTCOMES.quota.action, tone: "error" };
   }
 
@@ -246,7 +269,7 @@ export function assistantBanner(input: {
     return { text: held.banner, action: held.action, tone: "error" };
   }
 
-  if (settings.answersUsed >= settings.answersLimit * QUOTA_WARN_SHARE) {
+  if (!settings.usesOwnKey && settings.answersUsed >= settings.answersLimit * QUOTA_WARN_SHARE) {
     const date = input.resetsAt.toLocaleDateString("ru-RU", { day: "2-digit", month: "2-digit" });
     return {
       text: `Осталось ответов: ${answersLeft(settings)} из ${settings.answersLimit}, пакет обновится ${date}.`,

@@ -100,6 +100,7 @@ export default async function AiBotPage() {
                   {reply.provider && reply.model && (
                     <> · {findModel(reply.provider, reply.model)?.label ?? `${PROVIDER_INFO[reply.provider].label} ${reply.model}`}</>
                   )}
+                  {reply.ownKey && <> · ваш ключ</>}
                 </p>
               </li>
             ))}

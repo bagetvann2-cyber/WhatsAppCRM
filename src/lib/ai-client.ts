@@ -6,7 +6,7 @@ import type { OrderFieldDef } from "@/lib/orders";
 
 export type { ChatTurn } from "@/lib/llm/types";
 
-const HANDOFF_TOOL: ToolDef = {
+export const HANDOFF_TOOL: ToolDef = {
   name: "handoff_to_operator",
   description:
     "Передать диалог живому сотруднику. Вызывайте, когда клиент просит человека, " +

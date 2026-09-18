@@ -10,11 +10,13 @@ import {
   shouldBotReply,
   type BotOutcome,
   type BotSettings,
+  KEY_ERROR_CODES,
 } from "@/lib/ai-bot";
+import { decrypt, encrypt } from "@/lib/crypto";
 import { getSubscription, isSubscriptionActive } from "@/lib/billing-store";
 import { isReplyWindowOpen } from "@/lib/conversation-window";
 import { sendChannelText } from "@/lib/channels";
-import { defaultModel, resolveModel } from "@/lib/llm/catalog";
+import { PROVIDER_INFO, defaultModel, resolveModel } from "@/lib/llm/catalog";
 import { LlmError } from "@/lib/llm/errors";
 import type { ProviderId } from "@/lib/llm/types";
 import { getOrderFields, upsertDraftOrderFields } from "@/lib/orders-store";
@@ -39,6 +41,8 @@ export type BotState = BotSettings & {
   trialNotStarted: boolean;
   /** Когда пакет обнулится сам. */
   periodResetsAt: Date;
+  /** Ключ клиента без самого ключа: в браузер уходит только подсказка. */
+  ownKey: { provider: ProviderId; hint: string; checkedAt: Date | null; error: string | null } | null;
 };
 
 export async function getBot(organizationId: string): Promise<BotState> {
@@ -50,6 +54,7 @@ export async function getBot(organizationId: string): Promise<BotState> {
   const periodEnds = addMonth(stored?.answersPeriodStart ?? new Date());
   // Месяц прошёл: пакет обнулится при ближайшем ответе (reserveAnswer), а показываем уже новый.
   const expired = periodEnds.getTime() <= Date.now();
+  const hasKey = stored?.apiKeyEncrypted != null;
 
   return {
     exists: stored !== null,
@@ -66,7 +71,89 @@ export async function getBot(organizationId: string): Promise<BotState> {
     subscriptionActive: isSubscriptionActive(subscription),
     trialNotStarted: subscription.status === "TRIAL" && subscription.trialEndsAt === null,
     periodResetsAt: expired ? addMonth(new Date()) : periodEnds,
+    usesOwnKey: hasKey,
+    ownKey: hasKey
+      ? {
+          provider: stored!.apiKeyProvider ?? provider,
+          hint: stored!.apiKeyHint ?? "",
+          checkedAt: stored!.apiKeyCheckedAt,
+          error: stored!.apiKeyError,
+        }
+      : null,
   };
+}
+
+export type OwnKey = { provider: ProviderId; apiKey: string } | { error: "decrypt" };
+
+/** Ключ клиента в открытом виде. Только для серверного кода бота: наружу не отдаётся. */
+export async function loadOwnKey(organizationId: string): Promise<OwnKey | null> {
+  const row = await prisma.aiBot.findUnique({
+    where: { organizationId },
+    select: { apiKeyEncrypted: true, apiKeyProvider: true, provider: true },
+  });
+  if (!row?.apiKeyEncrypted) {
+    return null;
+  }
+  // Ключ одного провайдера никогда не уходит другому.
+  if (row.apiKeyProvider !== row.provider) {
+    return { error: "decrypt" };
+  }
+  try {
+    return { provider: row.provider, apiKey: decrypt(row.apiKeyEncrypted) };
+  } catch {
+    return { error: "decrypt" };
+  }
+}
+
+/** Сохраняет проверенный ключ вместе с провайдером и моделью: они меняются одним действием. */
+export async function saveOwnKey(
+  organizationId: string,
+  input: { provider: ProviderId; apiKey: string; model: string },
+): Promise<void> {
+  const data = {
+    provider: input.provider,
+    model: input.model,
+    apiKeyEncrypted: encrypt(input.apiKey),
+    apiKeyProvider: input.provider,
+    apiKeyHint: input.apiKey.slice(-4),
+    apiKeyCheckedAt: new Date(),
+    apiKeyError: null,
+  };
+  await prisma.aiBot.upsert({
+    where: { organizationId },
+    update: data,
+    create: { organizationId, companyProfile: "", ...data },
+  });
+}
+
+/** Возвращает бот на наш ключ. Провайдер без нашего ключа (OpenRouter) заменяется на Claude. */
+export async function removeOwnKey(organizationId: string): Promise<void> {
+  const row = await prisma.aiBot.findUnique({ where: { organizationId }, select: { provider: true } });
+  if (!row) {
+    return;
+  }
+  const fallback = PROVIDER_INFO[row.provider].ownKeyOnly;
+  await prisma.aiBot.update({
+    where: { organizationId },
+    data: {
+      apiKeyEncrypted: null,
+      apiKeyProvider: null,
+      apiKeyHint: null,
+      apiKeyCheckedAt: null,
+      apiKeyError: null,
+      // На нашем ключе модель одна на провайдера, чужой id не оставляем.
+      model: null,
+      ...(fallback ? { provider: "ANTHROPIC" as const } : {}),
+    },
+  });
+}
+
+/** Ключ клиента перестал работать (или заработал снова: `null`). Плашка и баннер читают это поле. */
+export async function setKeyError(organizationId: string, error: string | null, checked = false): Promise<void> {
+  await prisma.aiBot.updateMany({
+    where: { organizationId, apiKeyEncrypted: { not: null } },
+    data: { apiKeyError: error, ...(checked ? { apiKeyCheckedAt: new Date() } : {}) },
+  });
 }
 
 export type BotEdit = {
@@ -79,10 +166,17 @@ export type BotEdit = {
 };
 
 export async function saveBot(organizationId: string, settings: BotEdit): Promise<void> {
+  const current = await prisma.aiBot.findUnique({
+    where: { organizationId },
+    select: { provider: true, apiKeyEncrypted: true },
+  });
+  const provider = current?.provider ?? "ANTHROPIC";
+
   const data = {
     enabled: settings.enabled,
-    // Модель по умолчанию храним как null: смена победителя замера не должна требовать миграции.
-    model: settings.model === defaultModel("ANTHROPIC") ? null : settings.model,
+    // Модель на своём ключе задаёт действие сохранения ключа, эта форма её не трогает.
+    // На нашем ключе модель по умолчанию храним как null: смена победителя замера не требует миграции.
+    ...(current?.apiKeyEncrypted ? {} : { model: settings.model === defaultModel(provider) ? null : settings.model }),
     companyProfile: settings.companyProfile.trim(),
     rules: settings.rules?.trim() || null,
     stubText: settings.stubText?.trim() || null,
@@ -137,8 +231,10 @@ export async function getAssistantBanner(organizationId: string): Promise<Assist
     settings: bot,
     subscriptionActive: bot.subscriptionActive,
     hasChannel: channels > 0,
-    lastOutcome: last?.outcome ?? null,
+    // На своём ключе сбой виден по apiKeyError: текст «мы уже разбираемся» про чужой ключ был бы неправдой.
+    lastOutcome: bot.usesOwnKey ? null : (last?.outcome ?? null),
     resetsAt: bot.periodResetsAt,
+    keyError: bot.ownKey?.error ? { code: bot.ownKey.error, providerLabel: PROVIDER_INFO[bot.ownKey.provider].label } : null,
   });
 }
 
@@ -309,6 +405,7 @@ export async function runAiBot(input: {
           stub: true,
           outcome,
           provider: settings.provider,
+          ownKey: settings.usesOwnKey === true,
           model: settings.model,
           ...extra,
         },
@@ -336,11 +433,22 @@ export async function runAiBot(input: {
     return { status: "skipped", reason: "в диалоге нет сообщений клиента" };
   }
 
-  // Ответ занимается до запроса: параллельные воркеры не превысят пакет.
-  const periodStart = await reserveAnswer(input.organizationId, settings.answersLimit);
-  if (!periodStart) {
-    await stub("quota");
-    return { status: "skipped", reason: "quota" };
+  // Ключ клиента: его ответы наш пакет не тратят. Не расшифровался — бот молчит, заглушка уходит.
+  const own = settings.usesOwnKey ? await loadOwnKey(input.organizationId) : null;
+  if (own && "error" in own) {
+    await setKeyError(input.organizationId, own.error);
+    await stub("llm-auth", { error: "Нужно заново ввести ваш API-ключ." });
+    return { status: "failed", error: "ключ не расшифровался" };
+  }
+
+  // Ответ на нашем ключе занимается до запроса: параллельные воркеры не превысят пакет.
+  let periodStart: Date | null = null;
+  if (!own) {
+    periodStart = await reserveAnswer(input.organizationId, settings.answersLimit);
+    if (!periodStart) {
+      await stub("quota");
+      return { status: "skipped", reason: "quota" };
+    }
   }
 
   const orderFields = await getOrderFields(input.organizationId);
@@ -355,11 +463,21 @@ export async function runAiBot(input: {
       history,
       orderFields,
       org: input.organizationId,
+      apiKey: own?.apiKey,
     });
+    if (settings.ownKey?.error) {
+      await setKeyError(input.organizationId, null, true);
+    }
   } catch (error) {
     // Запроса не было или он не дал ответа: занятый ответ возвращается в пакет.
-    await refundAnswer(input.organizationId, periodStart);
+    if (periodStart) {
+      await refundAnswer(input.organizationId, periodStart);
+    }
     await alertPlatformError(settings.provider, error);
+    // Ошибка ключа клиента — на плашку и баннер. Разовый лимит частоты ключ не портит.
+    if (own && error instanceof LlmError && error.owner === "client" && (KEY_ERROR_CODES as readonly string[]).includes(error.code)) {
+      await setKeyError(input.organizationId, error.code);
+    }
 
     const outcome = outcomeForError(error);
     const message = error instanceof LlmError ? error.message : "Не удалось получить ответ";
@@ -378,6 +496,7 @@ export async function runAiBot(input: {
           question,
           outcome,
           provider: settings.provider,
+          ownKey: settings.usesOwnKey === true,
           model: settings.model,
           ...extra,
         },
@@ -401,6 +520,7 @@ export async function runAiBot(input: {
         handoffReason: result.handoffReason,
         outcome: result.handoff ? "handoff" : "answered",
         provider: result.provider ?? settings.provider,
+        ownKey: settings.usesOwnKey === true,
         model: result.model ?? settings.model,
         latencyMs: result.latencyMs,
         inputTokens: result.inputTokens,
@@ -451,6 +571,7 @@ export async function runAiBot(input: {
         error: message,
         outcome: "send-failed",
         provider: settings.provider,
+        ownKey: settings.usesOwnKey === true,
         model: settings.model,
       },
     });

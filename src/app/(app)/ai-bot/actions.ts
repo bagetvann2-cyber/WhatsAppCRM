@@ -14,8 +14,11 @@ import {
   type GeneratedProfile,
 } from "@/lib/profile-generator";
 import { LlmError } from "@/lib/llm";
-import { defaultModel } from "@/lib/llm/catalog";
-import { countUsage, finishUsage, getBot, reserveTestUsage, saveBot } from "@/lib/ai-bot-store";
+import { PROVIDER_INFO, defaultModel } from "@/lib/llm/catalog";
+import { PROVIDERS, type ProviderId } from "@/lib/llm/types";
+import { mismatchMessage, normalizeKey, probeKey } from "@/lib/llm/verify-key";
+import { prisma } from "@/lib/db";
+import { countUsage, finishUsage, getBot, loadOwnKey, removeOwnKey, reserveTestUsage, saveBot, saveOwnKey, setKeyError } from "@/lib/ai-bot-store";
 import { askBot } from "@/lib/ai-client";
 import { getOrderFields, saveOrderFields } from "@/lib/orders-store";
 import { findPlaceholders, findPreset } from "@/lib/profile-presets";
@@ -113,16 +116,16 @@ export async function testBotAction(_prev: TestState, data: FormData): Promise<T
     return { error: "Вопрос слишком длинный: до 1500 символов." };
   }
 
-  // Тест-чат идёт на нашем ключе и тратит наши деньги: до начала пробного периода лимит
-  // общий на весь кабинет, потом суточный.
-  const usageId = await reserveTestUsage(
-    organization.id,
-    TEST_CHAT_LIMIT,
-    settings.trialNotStarted,
-    settings.provider,
-    settings.model,
-  );
-  if (!usageId) {
+  // На ключе клиента проверки бесплатны для нас и без лимита. На нашем ключе они тратят наши
+  // деньги: до начала пробного периода лимит общий на весь кабинет, потом суточный.
+  const own = settings.usesOwnKey ? await loadOwnKey(organization.id) : null;
+  if (own && "error" in own) {
+    return { error: "Нужно заново ввести ваш API-ключ." };
+  }
+  const usageId = own
+    ? null
+    : await reserveTestUsage(organization.id, TEST_CHAT_LIMIT, settings.trialNotStarted, settings.provider, settings.model);
+  if (!own && !usageId) {
     return {
       error: settings.trialNotStarted
         ? "Проверки на нашем ключе закончились. Подключите канал — и они снова появятся каждый день."
@@ -138,8 +141,11 @@ export async function testBotAction(_prev: TestState, data: FormData): Promise<T
       rules: settings.rules,
       history: [{ role: "user", text: question }],
       org: organization.id,
+      apiKey: own?.apiKey,
     });
-    await finishUsage(usageId, { inputTokens: result.inputTokens + result.cachedTokens, outputTokens: result.outputTokens });
+    if (usageId) {
+      await finishUsage(usageId, { inputTokens: result.inputTokens + result.cachedTokens, outputTokens: result.outputTokens });
+    }
 
     return {
       answer: result.answer ?? "(помощник решил ничего не отвечать)",
@@ -147,7 +153,9 @@ export async function testBotAction(_prev: TestState, data: FormData): Promise<T
     };
   } catch (error) {
     const message = error instanceof Error ? error.message : "Не удалось получить ответ.";
-    await finishUsage(usageId, { error: message });
+    if (usageId) {
+      await finishUsage(usageId, { error: message });
+    }
     return { error: message };
   }
 }
@@ -197,4 +205,104 @@ export async function generateProfileAction(description: string): Promise<Genera
     await finishUsage(usageId, { error: message });
     return { error: message };
   }
+}
+
+export type KeyState = { error: string } | { ok: string } | { mismatch: string } | null;
+
+/** Модель на своём ключе: любой id, но без пробелов и разумной длины. */
+const MODEL_ID = /^[\w./:@-]{1,100}$/;
+
+/**
+ * Сохраняет ключ клиента вместе с провайдером и моделью. Сначала один пробный вызов:
+ * неверный ключ, модель без инструментов или мёртвый провайдер не сохраняются. Сам ключ
+ * в ответ не возвращается, поле формы после сохранения очищается.
+ */
+export async function saveApiKeyAction(_prev: KeyState, data: FormData): Promise<KeyState> {
+  const { organization, role } = await requireUser();
+  if (!canManageTeam(role)) {
+    return { error: "Подключать ключ может владелец или администратор." };
+  }
+
+  const provider = text(data, "provider") as ProviderId;
+  if (!PROVIDERS.includes(provider)) {
+    return { error: "Выберите нейросеть." };
+  }
+  const apiKey = normalizeKey(text(data, "apiKey"));
+  if (!apiKey) {
+    return { error: "Вставьте API-ключ." };
+  }
+
+  // Ключ от другой нейросети: спрашиваем, а не отказываем, префиксы бывают у новых ключей другими.
+  const mismatch = mismatchMessage(provider, apiKey);
+  if (mismatch && data.get("force") !== "on") {
+    return { mismatch };
+  }
+
+  const model = text(data, "model") || defaultModel(provider) || "";
+  if (!model) {
+    return { error: `Для ${PROVIDER_INFO[provider].label} укажите название модели.` };
+  }
+  if (!MODEL_ID.test(model)) {
+    return { error: "Название модели: латинские буквы, цифры и символы . / : - _, без пробелов." };
+  }
+
+  const probe = await probeKey(provider, apiKey, model);
+  await prisma.aiUsage.create({
+    data: {
+      organizationId: organization.id,
+      kind: "PROBE",
+      provider,
+      model,
+      inputTokens: probe.ok ? probe.usage.input : 0,
+      outputTokens: probe.ok ? probe.usage.output : 0,
+      error: probe.ok ? null : probe.message,
+    },
+  });
+  if (!probe.ok) {
+    return { error: probe.message };
+  }
+
+  await saveOwnKey(organization.id, { provider, apiKey, model });
+  revalidatePath("/ai-bot");
+  return { ok: `Ключ ${PROVIDER_INFO[provider].label} проверен и сохранён.` };
+}
+
+/** Убирает ключ клиента: бот возвращается на наш ключ и пакет по тарифу. */
+export async function removeApiKeyAction(): Promise<KeyState> {
+  const { organization, role } = await requireUser();
+  if (!canManageTeam(role)) {
+    return { error: "Отключать ключ может владелец или администратор." };
+  }
+  await removeOwnKey(organization.id);
+  revalidatePath("/ai-bot");
+  return { ok: "Ключ удалён. Помощник отвечает на тарифе." };
+}
+
+/** «Проверить снова»: тот же пробный вызов по сохранённому ключу; ошибка снимается, если ключ заработал. */
+export async function recheckApiKeyAction(): Promise<KeyState> {
+  const { organization, role } = await requireUser();
+  if (!canManageTeam(role)) {
+    return { error: "Доступно владельцу или администратору." };
+  }
+
+  const own = await loadOwnKey(organization.id);
+  if (!own) {
+    return { error: "Свой ключ не подключён." };
+  }
+  if ("error" in own) {
+    return { error: "Нужно заново ввести ваш API-ключ." };
+  }
+
+  const settings = await getBot(organization.id);
+  const probe = await probeKey(own.provider, own.apiKey, settings.model);
+  if (!probe.ok) {
+    // Сбой провайдера ключ не портит: ошибку ключа ставим только по его собственным кодам.
+    if (probe.code === "auth" || probe.code === "quota" || probe.code === "model") {
+      await setKeyError(organization.id, probe.code, true);
+    }
+    return { error: probe.message };
+  }
+  await setKeyError(organization.id, null, true);
+  revalidatePath("/ai-bot");
+  return { ok: "Ключ работает." };
 }

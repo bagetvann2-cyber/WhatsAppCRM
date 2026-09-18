@@ -251,6 +251,16 @@ model AiBot {
   stubText   String?
   stubTextKz String?
 
+  /// Ключ клиента у своего провайдера (AES-256-GCM, как токены каналов). В браузер не уходит
+  /// никогда, даже зашифрованным. Ключ привязан к провайдеру: ключ OpenAI не уйдёт в Gemini.
+  apiKeyEncrypted String?
+  apiKeyProvider  AiProvider?
+  /// Последние четыре символа, чтобы клиент узнал свой ключ.
+  apiKeyHint      String?
+  apiKeyCheckedAt DateTime?
+  /// Код ошибки, из-за которой ключ перестал работать (auth, quota, model, decrypt). null — ключ рабочий.
+  apiKeyError     String?
+
   updatedAt DateTime @updatedAt
 }
 
@@ -297,6 +307,8 @@ model AiReply {
   providerCode   String?
   /// answer в этой записи — заглушка, а не ответ модели.
   stub           Boolean      @default(false)
+  /// Отвечали на ключе клиента, а не на нашем: от этого зависит, чей это расход.
+  ownKey         Boolean      @default(false)
   /// Кто и как отвечал: нужно и для журнала, и для расчёта расхода по провайдерам.
   provider       AiProvider?
   model          String?
