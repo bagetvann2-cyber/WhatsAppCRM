@@ -1,6 +1,7 @@
 import { afterAll, beforeEach, expect, test, vi } from "vitest";
 import { prisma } from "@/lib/db";
 import {
+  DEFAULT_STUB,
   answersLeft,
   buildSystemPrompt,
   estimateCost,
@@ -8,6 +9,7 @@ import {
   type BotSettings,
 } from "@/lib/ai-bot";
 import { getBot, runAiBot, saveBot } from "@/lib/ai-bot-store";
+import { LlmError } from "@/lib/llm/errors";
 import { saveIncomingMessage } from "@/lib/ingest";
 import { getOrderFields, getOrders, saveOrderFields } from "@/lib/orders-store";
 import { createTestOrg, dropTestOrg } from "./helpers";
@@ -100,12 +102,13 @@ test("остаток пакета и стоимость считаются", () 
 });
 
 test("настройки сохраняются и читаются", async () => {
-  await saveBot(organizationId, { ...settings, answersLimit: 500 });
+  await saveBot(organizationId, settings);
 
   const stored = await getBot(organizationId);
   expect(stored.exists).toBe(true);
   expect(stored.enabled).toBe(true);
-  expect(stored.answersLimit).toBe(500);
+  // Пакет задаёт тариф (пробный — 50), клиент его не выбирает.
+  expect(stored.answersLimit).toBe(50);
   expect(stored.companyProfile).toContain("Улыбка");
 });
 
@@ -194,7 +197,9 @@ test("передача оператору помечает диалог и за�
   const run = await runAiBot({ organizationId, conversationId, to: waId });
 
   expect(run).toEqual({ status: "handoff", reason: "Клиент требует скидку" });
-  expect(sendMock).not.toHaveBeenCalled();
+  // Модель передала диалог и промолчала: клиенту уходит заглушка, а не тишина.
+  expect(sendMock).toHaveBeenCalledTimes(1);
+  expect(sendMock).toHaveBeenCalledWith(expect.objectContaining({ text: DEFAULT_STUB }));
 
   const conversation = await prisma.conversation.findUniqueOrThrow({
     where: { id: conversationId },
@@ -211,7 +216,9 @@ test("передача оператору помечает диалог и за�
 });
 
 test("исчерпанный пакет останавливает бота до обращения к API", async () => {
-  await saveBot(organizationId, { ...settings, answersLimit: 1 });
+  await saveBot(organizationId, settings);
+  // В пробном тарифе 50 ответов: остался один.
+  await prisma.aiBot.update({ where: { organizationId }, data: { answersUsed: 49 } });
   askMock.mockResolvedValue({
     answer: "Ответ",
     handoff: false,
@@ -232,20 +239,32 @@ test("исчерпанный пакет останавливает бота до
 
   expect(second).toEqual({ status: "skipped", reason: "quota" });
   expect(askMock).not.toHaveBeenCalled();
+
+  // Вместо тишины клиенту ушла заглушка, а диалог остался за ботом.
+  expect(sendMock).toHaveBeenLastCalledWith(expect.objectContaining({ text: DEFAULT_STUB }));
+  const conversation = await prisma.conversation.findUniqueOrThrow({ where: { id: conversationId } });
+  expect(conversation.handedOffAt).toBeNull();
 });
 
 test("сбой API логируется и не роняет приём сообщений", async () => {
   await saveBot(organizationId, settings);
-  askMock.mockRejectedValue(new Error("Claude недоступен"));
+  askMock.mockRejectedValue(new LlmError("unavailable", false, 503));
 
   const { conversationId } = await incoming("Вопрос", "wamid.IN.1");
   const run = await runAiBot({ organizationId, conversationId, to: waId });
 
   expect(run).toMatchObject({ status: "failed" });
-  expect(await prisma.message.count({ where: { conversationId } })).toBe(1);
+  // Входящее на месте, плюс клиенту ушла заглушка.
+  expect(await prisma.message.count({ where: { conversationId } })).toBe(2);
 
   const log = await prisma.aiReply.findFirstOrThrow({ where: { organizationId } });
-  expect(log.error).toContain("Claude недоступен");
+  expect(log.error).toBe("Нейросеть временно недоступна.");
+  expect(log.outcome).toBe("llm-unavailable");
+  expect(log.httpStatus).toBe(503);
+  expect(log.stub).toBe(true);
+
+  // Запроса не было: занятый ответ вернулся в пакет.
+  expect((await prisma.aiBot.findUniqueOrThrow({ where: { organizationId } })).answersUsed).toBe(0);
 });
 
 test("расход токенов пишется в журнал для отчёта", async () => {

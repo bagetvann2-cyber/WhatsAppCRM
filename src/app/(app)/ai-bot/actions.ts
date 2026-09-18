@@ -3,7 +3,8 @@
 import { revalidatePath } from "next/cache";
 import { requireUser } from "@/lib/session";
 import { canManageTeam } from "@/lib/team";
-import { getBot, resetUsage, saveBot } from "@/lib/ai-bot-store";
+import { MAX_PROFILE_CHARS, MAX_STUB_CHARS, TEST_CHAT_LIMIT } from "@/lib/ai-bot";
+import { finishUsage, getBot, reserveTestUsage, saveBot } from "@/lib/ai-bot-store";
 import { askBot } from "@/lib/ai-client";
 
 export type FormState = { error: string } | { ok: string } | null;
@@ -25,28 +26,28 @@ export async function saveBotAction(_prev: FormState, data: FormData): Promise<F
     return { error: "Заполните анкету — без неё помощнику нечего отвечать." };
   }
 
-  const limit = Number(text(data, "answersLimit"));
+  const rules = text(data, "rules");
+  // От размера анкеты зависит цена каждого ответа: без потолка один клиент делает бота дорогим.
+  if (profile.length + rules.length > MAX_PROFILE_CHARS) {
+    return { error: `Анкета вместе с правилами не длиннее ${MAX_PROFILE_CHARS} символов.` };
+  }
+  const stubText = text(data, "stubText");
+  const stubTextKz = text(data, "stubTextKz");
+  if (stubText.length > MAX_STUB_CHARS || stubTextKz.length > MAX_STUB_CHARS) {
+    return { error: `Текст для клиента не длиннее ${MAX_STUB_CHARS} символов.` };
+  }
 
   await saveBot(organization.id, {
     enabled: data.get("enabled") === "on",
-    model: text(data, "model") || "claude-opus-5",
+    model: text(data, "model") || "claude-sonnet-5",
     companyProfile: profile,
-    rules: text(data, "rules"),
-    answersLimit: Number.isFinite(limit) && limit > 0 ? Math.floor(limit) : 100,
+    rules,
+    stubText,
+    stubTextKz,
   });
 
   revalidatePath("/ai-bot");
   return { ok: "Настройки сохранены." };
-}
-
-export async function resetUsageAction(): Promise<void> {
-  const { organization, role } = await requireUser();
-  if (!canManageTeam(role)) {
-    return;
-  }
-
-  await resetUsage(organization.id);
-  revalidatePath("/ai-bot");
 }
 
 /**
@@ -69,19 +70,44 @@ export async function testBotAction(_prev: TestState, data: FormData): Promise<T
     return { error: "Сначала заполните анкету и сохраните её." };
   }
 
+  if (question.length > 1500) {
+    return { error: "Вопрос слишком длинный: до 1500 символов." };
+  }
+
+  // Тест-чат идёт на нашем ключе и тратит наши деньги: до начала пробного периода лимит
+  // общий на весь кабинет, потом суточный.
+  const usageId = await reserveTestUsage(
+    organization.id,
+    TEST_CHAT_LIMIT,
+    settings.trialNotStarted,
+    settings.provider,
+    settings.model,
+  );
+  if (!usageId) {
+    return {
+      error: settings.trialNotStarted
+        ? "Проверки на нашем ключе закончились. Подключите канал — и они снова появятся каждый день."
+        : "На сегодня проверки закончились. Завтра будет новый лимит.",
+    };
+  }
+
   try {
     const result = await askBot({
+      provider: settings.provider,
       model: settings.model,
       companyProfile: settings.companyProfile,
       rules: settings.rules,
       history: [{ role: "user", text: question }],
     });
+    await finishUsage(usageId, { inputTokens: result.inputTokens + result.cachedTokens, outputTokens: result.outputTokens });
 
     return {
       answer: result.answer ?? "(помощник решил ничего не отвечать)",
       handoff: result.handoff ? (result.handoffReason ?? "без пояснения") : null,
     };
   } catch (error) {
-    return { error: error instanceof Error ? error.message : "Не удалось получить ответ." };
+    const message = error instanceof Error ? error.message : "Не удалось получить ответ.";
+    await finishUsage(usageId, { error: message });
+    return { error: message };
   }
 }

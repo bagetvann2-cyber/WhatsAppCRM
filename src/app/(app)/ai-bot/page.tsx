@@ -5,7 +5,6 @@ import { Empty, Group, GroupTitle, PageHead } from "@/components/ledger";
 import { getBot, listReplies } from "@/lib/ai-bot-store";
 import { requireUser } from "@/lib/session";
 import { canManageTeam } from "@/lib/team";
-import { resetUsageAction } from "@/app/(app)/ai-bot/actions";
 
 export const dynamic = "force-dynamic";
 
@@ -38,24 +37,14 @@ export default async function AiBotPage() {
           rules: settings.rules,
           answersLimit: settings.answersLimit,
           answersUsed: settings.answersUsed,
+          resetsAt: settings.periodResetsAt.toLocaleDateString("ru-RU", { day: "numeric", month: "long" }),
+          stubText: settings.stubText ?? null,
+          stubTextKz: settings.stubTextKz ?? null,
         }}
       />
 
       <Group className="mt-12">
-        <GroupTitle
-          aside={
-            settings.answersUsed > 0 ? (
-              <form action={resetUsageAction}>
-                <button
-                  type="submit"
-                  className="text-xs text-ink-muted transition-colors hover:text-ink"
-                >
-                  Обнулить счётчик пакета
-                </button>
-              </form>
-            ) : undefined
-          }
-        >
+        <GroupTitle>
           Что отвечал помощник
         </GroupTitle>
 

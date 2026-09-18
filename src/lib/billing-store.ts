@@ -18,6 +18,7 @@ const DEFAULT_PLANS = [
     numbersIncluded: 1,
     integrations: false,
     trialDays: 7,
+    aiAnswersPerMonth: 50,
     sortOrder: 0,
     features: ["Полный доступ на 7 дней", "1 номер", "До 3 операторов"],
   },
@@ -30,6 +31,7 @@ const DEFAULT_PLANS = [
     numbersIncluded: 1,
     integrations: false,
     trialDays: 0,
+    aiAnswersPerMonth: 0,
     sortOrder: 1,
     features: [
       "1 номер WhatsApp",
@@ -47,6 +49,7 @@ const DEFAULT_PLANS = [
     numbersIncluded: 3,
     integrations: true,
     trialDays: 0,
+    aiAnswersPerMonth: 2000,
     sortOrder: 2,
     features: [
       "Всё из «Старта»",
@@ -306,6 +309,12 @@ export async function markInvoicePaid(organizationId: string, invoiceId: string)
         periodMonths: invoice.periodMonths,
         paidUntil,
       },
+    });
+
+    // Новый оплаченный период — новый пакет ответов ИИ.
+    await prisma.aiBot.updateMany({
+      where: { organizationId },
+      data: { answersUsed: 0, answersPeriodStart: new Date() },
     });
   }
 }

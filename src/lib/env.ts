@@ -25,6 +25,8 @@ export const env = {
   /** Ключи платформы для нейросетей. Не бросает: без ключа провайдер просто недоступен на нашем счёте. */
   platformKey: (provider: ProviderId): string | null =>
     process.env[{ ANTHROPIC: "ANTHROPIC_API_KEY", OPENAI: "OPENAI_API_KEY", GEMINI: "GEMINI_API_KEY", OPENROUTER: "" }[provider]] || null,
+  /** Кому писать, когда сломался наш ключ нейросети. Не задано — только строка в логе воркера. */
+  platformAlertEmail: (): string | null => process.env.PLATFORM_ALERT_EMAIL || null,
   resendApiKey: () => required("RESEND_API_KEY"),
   /// До верификации домена в Resend можно слать только на свою же почту аккаунта —
   /// для чужих писем нужен verified-домен и адрес на нём.

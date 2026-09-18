@@ -3,7 +3,11 @@
 import { useActionState, useState } from "react";
 import { AlertIcon, BoltIcon } from "@/components/icons";
 import { saveBotAction, testBotAction, type FormState, type TestState } from "@/app/(app)/ai-bot/actions";
-import { AI_MODELS, COST_PER_ANSWER, answersLeft } from "@/lib/ai-bot";
+import { DEFAULT_STUB, DEFAULT_STUB_KZ, MAX_STUB_CHARS, answersLeft } from "@/lib/ai-bot";
+import { MODELS } from "@/lib/llm/catalog";
+
+// На нашем ключе доступны только «платформенные» модели каталога.
+const PLATFORM_MODELS = MODELS.ANTHROPIC.filter((model) => model.platform);
 
 const INPUT =
   "w-full rounded-lg border border-line bg-panel-muted px-3 py-2 text-sm text-ink transition-colors placeholder:text-ink-faint hover:border-line-strong focus:border-accent focus:bg-panel";
@@ -28,6 +32,10 @@ export function AiBotForm({
     rules: string | null;
     answersLimit: number;
     answersUsed: number;
+    /** Когда пакет обнулится, уже отформатировано на сервере. */
+    resetsAt: string;
+    stubText: string | null;
+    stubTextKz: string | null;
   };
 }) {
   const [state, formAction, pending] = useActionState<FormState, FormData>(saveBotAction, null);
@@ -35,11 +43,8 @@ export function AiBotForm({
 
   const [enabled, setEnabled] = useState(initial.enabled);
   const [model, setModel] = useState(initial.model);
-  const [limit, setLimit] = useState(String(initial.answersLimit));
 
-  const modelHint = AI_MODELS.find((m) => m.value === model)?.hint;
-  const perAnswer = COST_PER_ANSWER[model] ?? 0;
-  const packageCost = Math.round((Number(limit) || 0) * perAnswer);
+  const modelHint = PLATFORM_MODELS.find((m) => m.id === model)?.hint;
   const left = answersLeft({ answersLimit: initial.answersLimit, answersUsed: initial.answersUsed });
 
   return (
@@ -88,49 +93,58 @@ export function AiBotForm({
           />
         </label>
 
-        <div className="grid gap-4 sm:grid-cols-2">
-          <label className="flex flex-col gap-1.5">
-            <span className="text-sm font-medium text-ink">Модель</span>
-            <select
-              name="model"
-              value={model}
-              onChange={(e) => setModel(e.target.value)}
-              className={INPUT}
-            >
-              {AI_MODELS.map((m) => (
-                <option key={m.value} value={m.value}>
-                  {m.label}
-                </option>
-              ))}
-            </select>
-            <span className="text-xs text-ink-faint">{modelHint}</span>
-          </label>
+        <label className="flex flex-col gap-1.5">
+          <span className="text-sm font-medium text-ink">Модель</span>
+          <select
+            name="model"
+            value={model}
+            onChange={(e) => setModel(e.target.value)}
+            className={INPUT}
+          >
+            {PLATFORM_MODELS.map((m) => (
+              <option key={m.id} value={m.id}>
+                {m.label}
+              </option>
+            ))}
+          </select>
+          <span className="text-xs text-ink-faint">{modelHint}</span>
+        </label>
 
-          <label className="flex flex-col gap-1.5">
-            <span className="text-sm font-medium text-ink">Пакет ответов в месяц</span>
-            <input
-              name="answersLimit"
-              type="number"
-              min={1}
-              value={limit}
-              onChange={(e) => setLimit(e.target.value)}
-              className={INPUT}
-            />
-            <span className="text-xs text-ink-faint">
-              Кончится — помощник замолчит, а не выставит счёт.
+        <div className="rounded-lg bg-accent-soft px-3 py-2.5 text-sm text-accent">
+          {initial.answersLimit === 0 ? (
+            <span>В вашем тарифе ИИ-помощника нет — он входит в «Бизнес».</span>
+          ) : (
+            <span>
+              Осталось <span className="font-semibold tabular-nums">{left}</span> из {initial.answersLimit} ответов, обновится{" "}
+              {initial.resetsAt}. Размер пакета задаёт тариф; когда он кончится, клиентам уйдёт ваш текст ниже.
             </span>
-          </label>
+          )}
         </div>
 
-        <div className="flex flex-wrap items-baseline gap-x-6 gap-y-1 rounded-lg bg-accent-soft px-3 py-2.5 text-sm text-accent">
-          <span>
-            Себестоимость пакета: <span className="font-semibold">≈ {packageCost.toLocaleString("ru-RU")} ₸</span>
+        <fieldset className="flex flex-col gap-3">
+          <legend className="text-sm font-medium text-ink">
+            Если помощник не может ответить <span className="font-normal text-ink-faint">— что увидит клиент</span>
+          </legend>
+          <input
+            name="stubText"
+            defaultValue={initial.stubText ?? ""}
+            maxLength={MAX_STUB_CHARS}
+            placeholder={DEFAULT_STUB}
+            aria-label="Текст по-русски"
+            className={INPUT}
+          />
+          <input
+            name="stubTextKz"
+            defaultValue={initial.stubTextKz ?? ""}
+            maxLength={MAX_STUB_CHARS}
+            placeholder={DEFAULT_STUB_KZ}
+            aria-label="Текст по-казахски"
+            className={INPUT}
+          />
+          <span className="text-xs text-ink-faint">
+            Казахский текст уходит, если клиент написал казахскими буквами. Автоответ вне рабочих часов по-прежнему важнее.
           </span>
-          <span className="text-xs text-accent/80">≈ {perAnswer} ₸ за ответ</span>
-          <span className="text-xs text-accent/80">
-            Израсходовано {initial.answersUsed} из {initial.answersLimit}, осталось {left}
-          </span>
-        </div>
+        </fieldset>
 
         {state && "error" in state && (
           <p role="alert" className="flex items-start gap-2 rounded-lg bg-danger-soft px-3 py-2 text-sm text-danger">
@@ -158,7 +172,7 @@ export function AiBotForm({
           <p className="text-sm font-semibold text-ink">Проверить на вопросе</p>
         </div>
         <p className="text-sm text-ink-muted">
-          Прогон по сохранённой анкете. Клиенту ничего не уходит, из пакета не списывается.
+          Прогон по сохранённой анкете. Клиенту ничего не уходит и пакет ответов не тратится, но проверки на нашем ключе ограничены в сутки.
         </p>
 
         <div className="flex flex-col gap-2 sm:flex-row">

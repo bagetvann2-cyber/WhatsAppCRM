@@ -108,7 +108,10 @@ test("одинаковый номер клиента в разных компа�
       channelExternalId: "PNID-INGEST-2",
     });
 
-    const contacts = await prisma.contact.findMany({ where: { externalUserId: waId } });
+    // Только эти две компании: тот же номер клиента используют и другие тестовые файлы.
+    const contacts = await prisma.contact.findMany({
+      where: { externalUserId: waId, organizationId: { in: [organizationId, other.id] } },
+    });
     expect(contacts).toHaveLength(2);
     expect(new Set(contacts.map((c) => c.organizationId))).toEqual(
       new Set([organizationId, other.id]),

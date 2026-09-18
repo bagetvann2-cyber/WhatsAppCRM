@@ -129,6 +129,8 @@ model Plan {
   /// Доступ к интеграциям с CRM — отличие «Бизнеса» от «Старта».
   integrations       Boolean  @default(false)
   trialDays          Int      @default(0)
+  /// Ответов ИИ-помощника в месяц на нашем ключе. 0 — помощника в тарифе нет.
+  aiAnswersPerMonth  Int      @default(0)
   /// Что входит — строками для карточки тарифа, без правки вёрстки.
   features           String[]
   sortOrder          Int      @default(0)
@@ -215,6 +217,7 @@ model Organization {
   automation          Automation?
   aiBot               AiBot?
   aiReplies           AiReply[]
+  aiUsage             AiUsage[]
   orderFields         OrderField[]
   orders              Order[]
 }
@@ -238,15 +241,44 @@ model AiBot {
   /// Чего боту нельзя обещать: скидки, сроки, гарантии.
   rules          String?
 
-  /// Пакет ответов: кончился — бот замолкает, а не выставляет счёт.
-  answersLimit Int @default(100)
-  answersUsed  Int @default(0)
+  /// Пакет ответов на нашем ключе. Размер задаёт тариф (Plan.aiAnswersPerMonth), а не клиент.
+  /// Кончился — бот отвечает заглушкой, а не выставляет счёт. Счётчик сбрасывается при оплате
+  /// подписки и раз в месяц от answersPeriodStart (см. reserveAnswer).
+  answersUsed        Int      @default(0)
+  answersPeriodStart DateTime @default(now())
+
+  /// Что уходит клиенту, когда бот не может ответить. null — текст по умолчанию.
+  stubText   String?
+  stubTextKz String?
 
   updatedAt DateTime @updatedAt
 }
 
 /// Журнал ответов бота. Нужен и для отчёта клиенту, и для разбора,
 /// когда бот сказал что-то не то.
+enum AiUsageKind {
+  GENERATOR
+  TEST
+  PROBE
+}
+
+/// Вызовы модели не из переписки клиентов: генератор анкеты, тест-чат, проверка ключа.
+/// Нужна для суточных лимитов и для расчёта расхода наших ключей.
+model AiUsage {
+  id             String       @id @default(cuid())
+  organizationId String
+  organization   Organization @relation(fields: [organizationId], references: [id], onDelete: Cascade)
+  kind           AiUsageKind
+  provider       AiProvider?
+  model          String?
+  inputTokens    Int          @default(0)
+  outputTokens   Int          @default(0)
+  error          String?
+  createdAt      DateTime     @default(now())
+
+  @@index([organizationId, kind, createdAt])
+}
+
 model AiReply {
   id             String       @id @default(cuid())
   organizationId String
@@ -258,6 +290,13 @@ model AiReply {
   handoff        Boolean      @default(false)
   handoffReason  String?
   error          String?
+  /// Код исхода (см. BotOutcome в ai-bot.ts), HTTP-статус и код ошибки провайдера. Без текста
+  /// ошибки провайдера: в нём бывает кусок ключа.
+  outcome        String?
+  httpStatus     Int?
+  providerCode   String?
+  /// answer в этой записи — заглушка, а не ответ модели.
+  stub           Boolean      @default(false)
   /// Кто и как отвечал: нужно и для журнала, и для расчёта расхода по провайдерам.
   provider       AiProvider?
   model          String?
