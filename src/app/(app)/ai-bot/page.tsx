@@ -1,11 +1,17 @@
 import { redirect } from "next/navigation";
 import { AiBotForm } from "@/components/AiBotForm";
+import { AiProviderCard } from "@/components/AiProviderCard";
+import { env } from "@/lib/env";
+import { PROVIDERS } from "@/lib/llm/types";
 import { AlertIcon } from "@/components/icons";
 import { Empty, Group, GroupTitle, PageHead } from "@/components/ledger";
-import { getBot, listReplies } from "@/lib/ai-bot-store";
+import { REASON_LABEL } from "@/lib/ai-bot";
+import { countUsage, getBot, listReplies } from "@/lib/ai-bot-store";
+import { GENERATOR_LIMIT } from "@/lib/profile-generator";
+import { getOrderFields } from "@/lib/orders-store";
+import { PROVIDER_INFO, findModel } from "@/lib/llm/catalog";
 import { requireUser } from "@/lib/session";
 import { canManageTeam } from "@/lib/team";
-import { resetUsageAction } from "@/app/(app)/ai-bot/actions";
 
 export const dynamic = "force-dynamic";
 
@@ -17,10 +23,12 @@ export default async function AiBotPage() {
     redirect("/inbox");
   }
 
-  const [settings, replies] = await Promise.all([
+  const [settings, replies, orderFields] = await Promise.all([
     getBot(organization.id),
     listReplies(organization.id),
+    getOrderFields(organization.id),
   ]);
+  const generatorUsed = await countUsage(organization.id, "GENERATOR", settings.trialNotStarted);
 
   return (
     <main className="mx-auto max-w-3xl px-4 py-8 md:px-6">
@@ -31,6 +39,8 @@ export default async function AiBotPage() {
       </PageHead>
 
       <AiBotForm
+        provider={settings.provider}
+        usesOwnKey={settings.usesOwnKey === true}
         initial={{
           enabled: settings.enabled,
           model: settings.model,
@@ -38,24 +48,34 @@ export default async function AiBotPage() {
           rules: settings.rules,
           answersLimit: settings.answersLimit,
           answersUsed: settings.answersUsed,
+          resetsAt: settings.periodResetsAt.toLocaleDateString("ru-RU", { day: "numeric", month: "long" }),
+          stubText: settings.stubText ?? null,
+          stubTextKz: settings.stubTextKz ?? null,
+          hasOrderFields: orderFields.length > 0,
+          generatorLeft: Math.max(0, GENERATOR_LIMIT - generatorUsed),
+          generatorLimit: GENERATOR_LIMIT,
+          canGenerate: settings.subscriptionActive,
         }}
       />
 
-      <Group className="mt-12">
-        <GroupTitle
-          aside={
-            settings.answersUsed > 0 ? (
-              <form action={resetUsageAction}>
-                <button
-                  type="submit"
-                  className="text-xs text-ink-muted transition-colors hover:text-ink"
-                >
-                  Обнулить счётчик пакета
-                </button>
-              </form>
-            ) : undefined
+      <div className="mt-6">
+        <AiProviderCard
+          provider={settings.provider}
+          model={settings.model}
+          ownKey={
+            settings.ownKey && {
+              provider: settings.ownKey.provider,
+              hint: settings.ownKey.hint,
+              checkedAt: settings.ownKey.checkedAt?.toLocaleDateString("ru-RU", { day: "2-digit", month: "2-digit" }) ?? null,
+              error: settings.ownKey.error,
+            }
           }
-        >
+          platformProviders={PROVIDERS.filter((p) => !PROVIDER_INFO[p].ownKeyOnly && env.platformKey(p))}
+        />
+      </div>
+
+      <Group className="mt-12">
+        <GroupTitle>
           Что отвечал помощник
         </GroupTitle>
 
@@ -71,27 +91,37 @@ export default async function AiBotPage() {
 
                 {reply.answer && (
                   <p className="mt-2 text-sm whitespace-pre-wrap text-ink">
-                    <span className="text-ink-faint">Помощник:</span> {reply.answer}
+                    <span className="text-ink-faint">{reply.stub ? "Заглушка:" : "Помощник:"}</span> {reply.answer}
                   </p>
                 )}
 
-                {reply.handoff && (
+                {reply.stub && (
+                  <p className="mt-2 flex items-start gap-2 rounded-lg bg-warn-soft px-3 py-2 text-sm text-warn">
+                    <AlertIcon className="mt-0.5 size-4 shrink-0" />
+                    Отправлена заглушка: {REASON_LABEL[reply.outcome ?? ""] ?? "помощник не смог ответить"}
+                  </p>
+                )}
+
+                {reply.handoff && !reply.stub && (
                   <p className="mt-2 flex items-start gap-2 rounded-lg bg-warn-soft px-3 py-2 text-sm text-warn">
                     <AlertIcon className="mt-0.5 size-4 shrink-0" />
                     Передал оператору: {reply.handoffReason ?? "без пояснения"}
                   </p>
                 )}
 
-                {reply.error && (
+                {reply.error && !reply.stub && (
                   <p className="mt-2 flex items-start gap-2 rounded-lg bg-danger-soft px-3 py-2 text-sm text-danger">
                     <AlertIcon className="mt-0.5 size-4 shrink-0" />
-                    Ошибка: {reply.error}
+                    {REASON_LABEL[reply.outcome ?? ""] ?? "Ошибка"}: {reply.error}
                   </p>
                 )}
 
                 <p className="mt-2 text-xs text-ink-faint tabular-nums">
-                  {reply.createdAt.toLocaleString("ru-RU")} · токенов: вход {reply.inputTokens}, из
-                  кэша {reply.cachedTokens}, ответ {reply.outputTokens}
+                  {reply.createdAt.toLocaleString("ru-RU")}
+                  {reply.provider && reply.model && (
+                    <> · {findModel(reply.provider, reply.model)?.label ?? `${PROVIDER_INFO[reply.provider].label} ${reply.model}`}</>
+                  )}
+                  {reply.ownKey && <> · ваш ключ</>}
                 </p>
               </li>
             ))}

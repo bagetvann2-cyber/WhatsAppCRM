@@ -43,15 +43,24 @@ async function getBoss(): Promise<PgBoss> {
  * постановки того же сообщения в очередь при повторной доставке вебхука. */
 export async function enqueueProcessMessage(job: ProcessMessageJob): Promise<void> {
   const boss = await getBoss();
-  await boss.send(QUEUE_PROCESS_MESSAGE, job, { singletonKey: job.messageId });
+  await boss.send(QUEUE_PROCESS_MESSAGE, job, {
+    singletonKey: job.messageId,
+    group: { id: job.conversationId },
+  });
 }
 
-/** Подписывает воркер на очередь. Резолвится сразу после подписки — обработка идёт в фоне. */
+/** Подписывает воркер на очередь. Резолвится сразу после подписки — обработка идёт в фоне.
+ * Разные диалоги идут параллельно (до 5), сообщения одного диалога — строго по одному,
+ * иначе два ответа бота на подряд идущие сообщения клиента перепутаются. */
 export async function workProcessMessage(
   handler: (job: ProcessMessageJob) => Promise<void>,
 ): Promise<void> {
   const boss = await getBoss();
-  await boss.work<ProcessMessageJob>(QUEUE_PROCESS_MESSAGE, async ([job]) => {
-    await handler(job.data);
-  });
+  await boss.work<ProcessMessageJob>(
+    QUEUE_PROCESS_MESSAGE,
+    { localConcurrency: 5, localGroupConcurrency: 1 },
+    async ([job]) => {
+      await handler(job.data);
+    },
+  );
 }

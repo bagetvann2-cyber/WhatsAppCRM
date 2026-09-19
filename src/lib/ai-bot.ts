@@ -1,3 +1,5 @@
+import type { LlmErrorCode } from "@/lib/llm/errors";
+
 export const AI_MODELS = [
   { value: "claude-opus-5", label: "Claude Opus 5 — самый способный", hint: "Дороже, но лучше держит сложные разговоры о ценах и условиях." },
   { value: "claude-sonnet-5", label: "Claude Sonnet 5 — баланс", hint: "Заметно дешевле при почти том же качестве." },
@@ -20,8 +22,95 @@ export type BotSettings = {
   model: string;
   companyProfile: string;
   rules: string | null;
+  /** Пакет ответов на нашем ключе: размер задаёт тариф, не клиент. */
   answersLimit: number;
   answersUsed: number;
+  /** Что уходит клиенту, когда бот не может ответить. Не задано — тексты по умолчанию. */
+  stubText?: string | null;
+  stubTextKz?: string | null;
+  /** Отвечает на ключе клиента: наш пакет ответов его не касается. */
+  usesOwnKey?: boolean;
+};
+
+/** Верхний предел анкеты вместе с правилами: от него зависит цена каждого ответа. */
+export const MAX_PROFILE_CHARS = 8000;
+/** Длина одного сообщения из истории, которое уходит боту. */
+export const MAX_HISTORY_MESSAGE_CHARS = 1500;
+export const MAX_STUB_CHARS = 300;
+/** Проверок в тест-чате на нашем ключе в сутки; до начала пробного периода столько же, но всего. */
+export const TEST_CHAT_LIMIT = 30;
+
+export const DEFAULT_STUB = "Передал ваш вопрос менеджеру, он скоро ответит.";
+export const DEFAULT_STUB_KZ = "Сұрағыңызды менеджерге жібердім, ол жақында жауап береді.";
+
+const KAZAKH_LETTERS = /[әғқңөұүһі]/i;
+
+/** Заглушка на языке клиента: казахская уходит, если в его сообщении есть казахские буквы. */
+export function pickStub(settings: Pick<BotSettings, "stubText" | "stubTextKz">, clientText: string): string {
+  if (KAZAKH_LETTERS.test(clientText)) {
+    return settings.stubTextKz?.trim() || DEFAULT_STUB_KZ;
+  }
+  return settings.stubText?.trim() || DEFAULT_STUB;
+}
+
+export type BotOutcome =
+  | "answered"
+  | "handoff"
+  | "disabled"
+  | "no-profile"
+  | "handed-off"
+  | "window-closed"
+  | "quota"
+  | "subscription"
+  | "send-failed"
+  | `llm-${LlmErrorCode}`;
+
+export type OutcomeInfo = {
+  /** Как исход называется в журнале. */
+  label: string;
+  /** Уходит ли клиенту заглушка: бот включён, но ответить не смог. */
+  sendsStub: boolean;
+  /** Текст баннера владельцу, если исход держится (бот не отвечает). */
+  banner?: string;
+  action?: { label: string; href: string };
+};
+
+const PLATFORM_BANNER = "Помощник временно не отвечает, мы уже разбираемся.";
+
+/**
+ * Единственный словарь исходов: журнал, баннер и заглушка читают его же, поэтому
+ * причина молчания называется одинаково везде.
+ */
+export const OUTCOMES: Record<BotOutcome, OutcomeInfo> = {
+  answered: { label: "ответил", sendsStub: false },
+  handoff: { label: "передал оператору", sendsStub: false },
+  disabled: { label: "бот выключен", sendsStub: false },
+  "no-profile": { label: "анкета компании не заполнена", sendsStub: false },
+  "handed-off": { label: "диалог передан оператору", sendsStub: false },
+  "window-closed": { label: "окно ответа закрыто", sendsStub: false },
+  quota: {
+    label: "пакет ответов исчерпан",
+    sendsStub: true,
+    banner: "Помощник не отвечает: пакет ответов исчерпан.",
+    action: { label: "Тарифы", href: "/billing" },
+  },
+  subscription: {
+    label: "подписка не оплачена",
+    sendsStub: true,
+    banner: "Помощник не отвечает: подписка не оплачена.",
+    action: { label: "Оплатить", href: "/billing" },
+  },
+  "send-failed": { label: "ответ не отправился", sendsStub: false },
+  "llm-auth": { label: "ключ нейросети не принят", sendsStub: true, banner: PLATFORM_BANNER },
+  "llm-quota": { label: "у провайдера закончились деньги", sendsStub: true, banner: PLATFORM_BANNER },
+  "llm-rate_limit": { label: "лимит запросов провайдера", sendsStub: true },
+  "llm-model": { label: "модель недоступна", sendsStub: true, banner: PLATFORM_BANNER },
+  "llm-bad_request": { label: "провайдер отклонил запрос", sendsStub: true },
+  "llm-unavailable": { label: "провайдер недоступен", sendsStub: true },
+  "llm-timeout": { label: "провайдер не ответил вовремя", sendsStub: true },
+  "llm-empty": { label: "пустой ответ нейросети", sendsStub: true },
+  "llm-length": { label: "ответ оборвался на лимите длины", sendsStub: true },
+  "llm-config": { label: "нейросеть не подключена", sendsStub: true, banner: PLATFORM_BANNER },
 };
 
 /**
@@ -35,7 +124,7 @@ export function buildSystemPrompt(settings: {
   rules: string | null;
 }): string {
   const parts = [
-    "Вы — помощник компании, отвечаете её клиентам в WhatsApp.",
+    "Вы — помощник компании, отвечаете её клиентам в мессенджере.",
     "",
     "Как отвечать:",
     "— Коротко и по делу: это переписка в мессенджере, а не письмо. Два-три предложения обычно достаточно.",
@@ -68,7 +157,7 @@ export function buildSystemPrompt(settings: {
 
 export type BotDecision =
   | { reply: true }
-  | { reply: false; reason: "disabled" | "quota" | "handed-off" | "no-profile" };
+  | { reply: false; reason: "disabled" | "quota" | "handed-off" | "no-profile" | "subscription" };
 
 /**
  * Отвечать ли боту на это сообщение. Проверки дешёвые и идут до обращения
@@ -77,6 +166,8 @@ export type BotDecision =
 export function shouldBotReply(input: {
   settings: BotSettings;
   handedOffAt: Date | null;
+  /** Не передано — подписка считается действующей. */
+  subscriptionActive?: boolean;
 }): BotDecision {
   const { settings } = input;
 
@@ -86,7 +177,10 @@ export function shouldBotReply(input: {
   if (!settings.companyProfile.trim()) {
     return { reply: false, reason: "no-profile" };
   }
-  if (settings.answersUsed >= settings.answersLimit) {
+  if (input.subscriptionActive === false) {
+    return { reply: false, reason: "subscription" };
+  }
+  if (!settings.usesOwnKey && settings.answersUsed >= settings.answersLimit) {
     return { reply: false, reason: "quota" };
   }
   // Диалог уже у человека: бот в него не вмешивается до конца разговора.
@@ -97,12 +191,9 @@ export function shouldBotReply(input: {
   return { reply: true };
 }
 
-export const REASON_LABEL: Record<string, string> = {
-  disabled: "бот выключен",
-  quota: "пакет ответов исчерпан",
-  "handed-off": "диалог передан оператору",
-  "no-profile": "анкета компании не заполнена",
-};
+export const REASON_LABEL: Record<string, string> = Object.fromEntries(
+  Object.entries(OUTCOMES).map(([code, info]) => [code, info.label]),
+);
 
 /** Остаток пакета — показывается и в настройках, и в отчёте. */
 export function answersLeft(settings: Pick<BotSettings, "answersLimit" | "answersUsed">): number {
@@ -111,4 +202,81 @@ export function answersLeft(settings: Pick<BotSettings, "answersLimit" | "answer
 
 export function estimateCost(answers: number, model: string): number {
   return Math.round(answers * (COST_PER_ANSWER[model] ?? 0));
+}
+
+/** Коды ошибок ключа клиента, которые держатся в AiBot.apiKeyError, пока ключ не заработает. */
+export const KEY_ERROR_CODES = ["auth", "quota", "model", "decrypt"] as const;
+
+export function keyErrorText(error: { code: string; providerLabel: string }): string {
+  switch (error.code) {
+    case "decrypt":
+      return "Нужно заново ввести ваш API-ключ.";
+    case "quota":
+      return `Помощник не отвечает: на вашем счёте у ${error.providerLabel} закончились деньги.`;
+    case "model":
+      return "Помощник не отвечает: модель больше недоступна у провайдера, выберите другую.";
+    default:
+      return `Помощник не отвечает: ключ ${error.providerLabel} не работает.`;
+  }
+}
+
+export type AssistantBanner = {
+  text: string;
+  action?: { label: string; href: string };
+  /** error: клиентам отвечает заглушка или тишина; warn: ещё отвечает, но скоро перестанет. */
+  tone: "error" | "warn";
+};
+
+/** Порог, с которого владельцу пора смотреть на пакет: 80% использовано. */
+export const QUOTA_WARN_SHARE = 0.8;
+
+/**
+ * Что показать владельцу и админу в шапке кабинета. Только когда бот включён: у выключенного
+ * молчание — выбор, а не поломка. Причина из состояния (пакет, подписка, канал) главнее причины
+ * из последнего ответа: она точнее и не зависит от того, писал ли кто-то боту сегодня.
+ */
+export function assistantBanner(input: {
+  settings: BotSettings;
+  subscriptionActive: boolean;
+  hasChannel: boolean;
+  /** Исход последней записи журнала: сбой провайдера держится, пока следующий ответ его не сотрёт. */
+  lastOutcome: string | null;
+  resetsAt: Date;
+  /** Ключ клиента перестал работать: код из AiBot.apiKeyError и название нейросети. */
+  keyError?: { code: string; providerLabel: string } | null;
+}): AssistantBanner | null {
+  const { settings } = input;
+  if (!settings.enabled || !settings.companyProfile.trim()) {
+    return null;
+  }
+
+  if (!input.hasChannel) {
+    return { text: "Нет подключённого канала: помощнику некому отвечать.", action: { label: "Подключить", href: "/channels" }, tone: "error" };
+  }
+  if (!input.subscriptionActive) {
+    return { text: OUTCOMES.subscription.banner!, action: OUTCOMES.subscription.action, tone: "error" };
+  }
+  if (settings.usesOwnKey && input.keyError) {
+    return { text: keyErrorText(input.keyError), action: { label: "Открыть настройки", href: "/ai-bot" }, tone: "error" };
+  }
+  if (!settings.usesOwnKey && settings.answersUsed >= settings.answersLimit) {
+    return { text: OUTCOMES.quota.banner!, action: OUTCOMES.quota.action, tone: "error" };
+  }
+
+  // Пакет и подписка уже проверены по состоянию: их старый исход в журнале баннер не держит.
+  const held = input.lastOutcome?.startsWith("llm-") ? OUTCOMES[input.lastOutcome as BotOutcome] : undefined;
+  if (held?.banner) {
+    return { text: held.banner, action: held.action, tone: "error" };
+  }
+
+  if (!settings.usesOwnKey && settings.answersUsed >= settings.answersLimit * QUOTA_WARN_SHARE) {
+    const date = input.resetsAt.toLocaleDateString("ru-RU", { day: "2-digit", month: "2-digit" });
+    return {
+      text: `Осталось ответов: ${answersLeft(settings)} из ${settings.answersLimit}, пакет обновится ${date}.`,
+      action: { label: "Тарифы", href: "/billing" },
+      tone: "warn",
+    };
+  }
+
+  return null;
 }

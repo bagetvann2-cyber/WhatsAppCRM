@@ -103,7 +103,6 @@ test("автоответ отправляется, ИИ-бот при этом �
     model: "claude-opus-5",
     companyProfile: "Компания",
     rules: null,
-    answersLimit: 100,
   });
 
   const { conversationId, messageId } = await incoming("Здравствуйте", "wamid.1");
@@ -121,7 +120,6 @@ test("без автоответов ИИ-бот отвечает и сохран
     model: "claude-opus-5",
     companyProfile: "Стоматология «Улыбка»",
     rules: null,
-    answersLimit: 100,
   });
   askMock.mockResolvedValue({
     answer: "Чем можем помочь?",

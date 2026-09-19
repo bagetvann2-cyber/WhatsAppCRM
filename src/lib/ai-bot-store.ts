@@ -1,37 +1,189 @@
 import { prisma } from "@/lib/db";
 import { askBot, type ChatTurn } from "@/lib/ai-client";
-import { shouldBotReply, type BotSettings } from "@/lib/ai-bot";
+import { alertPlatformError } from "@/lib/alerts";
+import {
+  MAX_HISTORY_MESSAGE_CHARS,
+  assistantBanner,
+  type AssistantBanner,
+  OUTCOMES,
+  pickStub,
+  shouldBotReply,
+  type BotOutcome,
+  type BotSettings,
+  KEY_ERROR_CODES,
+} from "@/lib/ai-bot";
+import { decrypt, encrypt } from "@/lib/crypto";
+import { getSubscription, isSubscriptionActive } from "@/lib/billing-store";
 import { isReplyWindowOpen } from "@/lib/conversation-window";
 import { sendChannelText } from "@/lib/channels";
+import { MODELS, PROVIDER_INFO, defaultModel, resolveModel } from "@/lib/llm/catalog";
+import { LlmError } from "@/lib/llm/errors";
+import type { ProviderId } from "@/lib/llm/types";
 import { getOrderFields, upsertDraftOrderFields } from "@/lib/orders-store";
 
 /** Сколько последних сообщений диалога уходит боту как контекст. */
 const HISTORY_DEPTH = 12;
 
-export async function getBot(organizationId: string): Promise<BotSettings & { exists: boolean }> {
-  const stored = await prisma.aiBot.findUnique({ where: { organizationId } });
+/** Повторную заглушку в тот же диалог не шлём: клиент, которому ответили «ждите», ждёт. */
+const STUB_REPEAT_MS = 6 * 3600 * 1000;
+
+function addMonth(date: Date): Date {
+  const next = new Date(date);
+  next.setMonth(next.getMonth() + 1);
+  return next;
+}
+
+export type BotState = BotSettings & {
+  exists: boolean;
+  provider: ProviderId;
+  subscriptionActive: boolean;
+  /** Кабинет ещё не подключил канал: пробные дни не идут, а лимиты на нашем ключе не должны быть бессрочными. */
+  trialNotStarted: boolean;
+  /** Когда пакет обнулится сам. */
+  periodResetsAt: Date;
+  /** Ключ клиента без самого ключа: в браузер уходит только подсказка. */
+  ownKey: { provider: ProviderId; hint: string; checkedAt: Date | null; error: string | null } | null;
+};
+
+export async function getBot(organizationId: string): Promise<BotState> {
+  const [stored, subscription] = await Promise.all([
+    prisma.aiBot.findUnique({ where: { organizationId } }),
+    getSubscription(organizationId),
+  ]);
+  const provider = stored?.provider ?? "ANTHROPIC";
+  const periodEnds = addMonth(stored?.answersPeriodStart ?? new Date());
+  // Месяц прошёл: пакет обнулится при ближайшем ответе (reserveAnswer), а показываем уже новый.
+  const expired = periodEnds.getTime() <= Date.now();
+  const hasKey = stored?.apiKeyEncrypted != null;
 
   return {
     exists: stored !== null,
+    provider,
     enabled: stored?.enabled ?? false,
-    model: stored?.model ?? "claude-opus-5",
+    // null в базе — «модель каталога по умолчанию»; наружу отдаём уже конкретную.
+    model: resolveModel(provider, stored?.model ?? null) ?? "",
     companyProfile: stored?.companyProfile ?? "",
     rules: stored?.rules ?? null,
-    answersLimit: stored?.answersLimit ?? 100,
-    answersUsed: stored?.answersUsed ?? 0,
+    stubText: stored?.stubText ?? null,
+    stubTextKz: stored?.stubTextKz ?? null,
+    answersLimit: subscription.plan.aiAnswersPerMonth,
+    answersUsed: expired ? 0 : (stored?.answersUsed ?? 0),
+    subscriptionActive: isSubscriptionActive(subscription),
+    trialNotStarted: subscription.status === "TRIAL" && subscription.trialEndsAt === null,
+    periodResetsAt: expired ? addMonth(new Date()) : periodEnds,
+    usesOwnKey: hasKey,
+    ownKey: hasKey
+      ? {
+          provider: stored!.apiKeyProvider ?? provider,
+          hint: stored!.apiKeyHint ?? "",
+          checkedAt: stored!.apiKeyCheckedAt,
+          error: stored!.apiKeyError,
+        }
+      : null,
   };
 }
 
-export async function saveBot(
+export type OwnKey = { provider: ProviderId; apiKey: string } | { error: "decrypt" };
+
+/** Ключ клиента в открытом виде. Только для серверного кода бота: наружу не отдаётся. */
+export async function loadOwnKey(organizationId: string): Promise<OwnKey | null> {
+  const row = await prisma.aiBot.findUnique({
+    where: { organizationId },
+    select: { apiKeyEncrypted: true, apiKeyProvider: true, provider: true },
+  });
+  if (!row?.apiKeyEncrypted) {
+    return null;
+  }
+  // Ключ одного провайдера никогда не уходит другому.
+  if (row.apiKeyProvider !== row.provider) {
+    return { error: "decrypt" };
+  }
+  try {
+    return { provider: row.provider, apiKey: decrypt(row.apiKeyEncrypted) };
+  } catch {
+    return { error: "decrypt" };
+  }
+}
+
+/** Сохраняет проверенный ключ вместе с провайдером и моделью: они меняются одним действием. */
+export async function saveOwnKey(
   organizationId: string,
-  settings: Omit<BotSettings, "answersUsed">,
+  input: { provider: ProviderId; apiKey: string; model: string },
 ): Promise<void> {
   const data = {
+    provider: input.provider,
+    model: input.model,
+    apiKeyEncrypted: encrypt(input.apiKey),
+    apiKeyProvider: input.provider,
+    apiKeyHint: input.apiKey.slice(-4),
+    apiKeyCheckedAt: new Date(),
+    apiKeyError: null,
+  };
+  await prisma.aiBot.upsert({
+    where: { organizationId },
+    update: data,
+    create: { organizationId, companyProfile: "", ...data },
+  });
+}
+
+/** Возвращает бот на наш ключ. Провайдер без нашего ключа (OpenRouter) заменяется на Claude. */
+export async function removeOwnKey(organizationId: string): Promise<void> {
+  const row = await prisma.aiBot.findUnique({ where: { organizationId }, select: { provider: true } });
+  if (!row) {
+    return;
+  }
+  const fallback = PROVIDER_INFO[row.provider].ownKeyOnly;
+  await prisma.aiBot.update({
+    where: { organizationId },
+    data: {
+      apiKeyEncrypted: null,
+      apiKeyProvider: null,
+      apiKeyHint: null,
+      apiKeyCheckedAt: null,
+      apiKeyError: null,
+      // На нашем ключе модель одна на провайдера, чужой id не оставляем.
+      model: null,
+      ...(fallback ? { provider: "ANTHROPIC" as const } : {}),
+    },
+  });
+}
+
+/** Ключ клиента перестал работать (или заработал снова: `null`). Плашка и баннер читают это поле. */
+export async function setKeyError(organizationId: string, error: string | null, checked = false): Promise<void> {
+  await prisma.aiBot.updateMany({
+    where: { organizationId, apiKeyEncrypted: { not: null } },
+    data: { apiKeyError: error, ...(checked ? { apiKeyCheckedAt: new Date() } : {}) },
+  });
+}
+
+export type BotEdit = {
+  enabled: boolean;
+  model: string;
+  companyProfile: string;
+  rules: string | null;
+  stubText?: string | null;
+  stubTextKz?: string | null;
+};
+
+export async function saveBot(organizationId: string, settings: BotEdit): Promise<void> {
+  const current = await prisma.aiBot.findUnique({
+    where: { organizationId },
+    select: { provider: true, apiKeyEncrypted: true },
+  });
+  const provider = current?.provider ?? "ANTHROPIC";
+
+  const data = {
     enabled: settings.enabled,
-    model: settings.model,
+    // Модель на своём ключе задаёт действие сохранения ключа, эта форма её не трогает.
+    // На нашем ключе модель по умолчанию храним как null: смена победителя замера не требует миграции.
+    ...(current?.apiKeyEncrypted
+      ? {}
+      // На тарифе разрешены только проверенные модели провайдера; чужой id из формы превращается в модель по умолчанию.
+      : { model: MODELS[provider].some((m) => m.platform && m.id === settings.model) && settings.model !== defaultModel(provider) ? settings.model : null }),
     companyProfile: settings.companyProfile.trim(),
     rules: settings.rules?.trim() || null,
-    answersLimit: settings.answersLimit,
+    stubText: settings.stubText?.trim() || null,
+    stubTextKz: settings.stubTextKz?.trim() || null,
   };
 
   await prisma.aiBot.upsert({
@@ -41,9 +193,52 @@ export async function saveBot(
   });
 }
 
-/** Обнуляет счётчик — например, когда клиент докупил пакет. */
-export async function resetUsage(organizationId: string): Promise<void> {
-  await prisma.aiBot.updateMany({ where: { organizationId }, data: { answersUsed: 0 } });
+/**
+ * Занимает один ответ из пакета до обращения к нейросети. Проверка, сброс по истечении
+ * месяца и списание — один запрос: два воркера на границе месяца не сбросят счётчик
+ * дважды, а на границе пакета не превысят его. Возвращает начало периода, в котором
+ * ответ занят (нужен для возврата), или null, если пакет исчерпан.
+ */
+export async function reserveAnswer(organizationId: string, limit: number): Promise<Date | null> {
+  const rows = await prisma.$queryRaw<{ answersPeriodStart: Date }[]>`
+    UPDATE "AiBot" SET
+      "answersUsed" = CASE WHEN "answersPeriodStart" <= timezone('UTC', now()) - interval '1 month'
+        THEN 1 ELSE "answersUsed" + 1 END,
+      "answersPeriodStart" = CASE WHEN "answersPeriodStart" <= timezone('UTC', now()) - interval '1 month'
+        THEN timezone('UTC', now()) ELSE "answersPeriodStart" END
+    WHERE "organizationId" = ${organizationId}
+      AND (CASE WHEN "answersPeriodStart" <= timezone('UTC', now()) - interval '1 month'
+        THEN 0 ELSE "answersUsed" END) < ${limit}
+    RETURNING "answersPeriodStart"`;
+
+  return rows[0]?.answersPeriodStart ?? null;
+}
+
+/** Возвращает занятый ответ, если запрос к нейросети не состоялся; только в том же периоде. */
+export async function refundAnswer(organizationId: string, periodStart: Date): Promise<void> {
+  await prisma.aiBot.updateMany({
+    where: { organizationId, answersUsed: { gt: 0 }, answersPeriodStart: periodStart },
+    data: { answersUsed: { decrement: 1 } },
+  });
+}
+
+/** Полоса состояния помощника для владельца и админа; `null` — всё в порядке или бот выключен. */
+export async function getAssistantBanner(organizationId: string): Promise<AssistantBanner | null> {
+  const [bot, channels, last] = await Promise.all([
+    getBot(organizationId),
+    prisma.channel.count({ where: { organizationId, status: "ACTIVE" } }),
+    prisma.aiReply.findFirst({ where: { organizationId }, orderBy: { createdAt: "desc" }, select: { outcome: true } }),
+  ]);
+
+  return assistantBanner({
+    settings: bot,
+    subscriptionActive: bot.subscriptionActive,
+    hasChannel: channels > 0,
+    // На своём ключе сбой виден по apiKeyError: текст «мы уже разбираемся» про чужой ключ был бы неправдой.
+    lastOutcome: bot.usesOwnKey ? null : (last?.outcome ?? null),
+    resetsAt: bot.periodResetsAt,
+    keyError: bot.ownKey?.error ? { code: bot.ownKey.error, providerLabel: PROVIDER_INFO[bot.ownKey.provider].label } : null,
+  });
 }
 
 export async function listReplies(organizationId: string, take = 20) {
@@ -60,20 +255,11 @@ export type BotRun =
   | { status: "handoff"; reason: string | null }
   | { status: "failed"; error: string };
 
-/**
- * Отвечает клиенту от имени компании. Вызывается после того, как входящее
- * сообщение уже сохранено, поэтому сбой здесь не теряет само сообщение.
- */
-export async function runAiBot(input: {
-  organizationId: string;
-  conversationId: string;
-  /** Адресат в терминах канала: номер телефона у WhatsApp, chat_id у Telegram. */
-  to: string;
-}): Promise<BotRun> {
-  const settings = await getBot(input.organizationId);
+type Conversation = NonNullable<Awaited<ReturnType<typeof loadConversation>>>;
 
-  const conversation = await prisma.conversation.findUnique({
-    where: { id: input.conversationId },
+async function loadConversation(conversationId: string) {
+  return prisma.conversation.findUnique({
+    where: { id: conversationId },
     select: {
       handedOffAt: true,
       windowExpiresAt: true,
@@ -85,56 +271,247 @@ export async function runAiBot(input: {
       },
     },
   });
+}
+
+/** История приходит от свежих к старым, боту нужен обычный порядок и первым сообщение клиента. */
+function buildHistory(messages: Conversation["messages"]): ChatTurn[] {
+  const history: ChatTurn[] = messages
+    .slice()
+    .reverse()
+    .map((message) => ({
+      role: message.direction === "INBOUND" ? ("user" as const) : ("assistant" as const),
+      text: (message.text ?? `[${message.type}]`).slice(0, MAX_HISTORY_MESSAGE_CHARS),
+    }));
+
+  while (history.length > 0 && history[0].role !== "user") {
+    history.shift();
+  }
+  return history;
+}
+
+/** Отправляет клиенту текст и запоминает его в переписке как обычное исходящее. */
+async function sendToClient(input: {
+  conversationId: string;
+  channel: Conversation["channel"];
+  to: string;
+  text: string;
+}): Promise<void> {
+  const { externalMessageId } = await sendChannelText({
+    channel: input.channel,
+    to: input.to,
+    text: input.text,
+  });
+  const now = new Date();
+
+  await prisma.message.create({
+    data: {
+      externalMessageId,
+      channelId: input.channel.id,
+      conversationId: input.conversationId,
+      direction: "OUTBOUND",
+      type: "text",
+      text: input.text,
+      status: "sent",
+      timestamp: now,
+    },
+  });
+
+  await prisma.conversation.update({
+    where: { id: input.conversationId },
+    data: { lastMessageAt: now },
+  });
+}
+
+/**
+ * Бот включён, но ответить не может: клиенту уходит заглушка, а не тишина. Диалог
+ * при этом остаётся за ботом (handedOffAt не трогаем): причина временная, и после её
+ * устранения бот должен снова отвечать. Повтор гасится по журналу.
+ * Возвращает текст, который ушёл, или null.
+ */
+async function sendStub(input: {
+  settings: BotSettings;
+  conversationId: string;
+  channel: Conversation["channel"];
+  to: string;
+  question: string;
+}): Promise<string | null> {
+  const recent = await prisma.aiReply.findFirst({
+    where: {
+      conversationId: input.conversationId,
+      stub: true,
+      createdAt: { gte: new Date(Date.now() - STUB_REPEAT_MS) },
+    },
+    select: { id: true },
+  });
+  if (recent) {
+    return null;
+  }
+
+  const text = pickStub(input.settings, input.question);
+  try {
+    await sendToClient({ conversationId: input.conversationId, channel: input.channel, to: input.to, text });
+  } catch {
+    // Заглушка не ушла: повторять её при следующем сообщении можно, дедупликации нет.
+    return null;
+  }
+  return text;
+}
+
+function outcomeForError(error: unknown): BotOutcome {
+  return error instanceof LlmError ? `llm-${error.code}` : "llm-unavailable";
+}
+
+/**
+ * Отвечает клиенту от имени компании. Вызывается после того, как входящее
+ * сообщение уже сохранено, поэтому сбой здесь не теряет само сообщение.
+ */
+export async function runAiBot(input: {
+  organizationId: string;
+  conversationId: string;
+  /** Адресат в терминах канала: номер телефона у WhatsApp, chat_id у Telegram. */
+  to: string;
+}): Promise<BotRun> {
+  const settings = await getBot(input.organizationId);
+  const conversation = await loadConversation(input.conversationId);
 
   if (!conversation) {
     return { status: "skipped", reason: "нет такого диалога" };
   }
 
-  const decision = shouldBotReply({ settings, handedOffAt: conversation.handedOffAt });
+  const history = buildHistory(conversation.messages);
+  const question = [...history].reverse().find((turn) => turn.role === "user")?.text ?? "";
+  const windowOpen = isReplyWindowOpen(conversation.channel, conversation);
+
+  // Заглушка уходит только в открытое окно и только на реальное сообщение клиента.
+  async function stub(
+    outcome: BotOutcome,
+    extra: { error?: string; httpStatus?: number; providerCode?: string } = {},
+    force = false,
+  ) {
+    if ((!force && !OUTCOMES[outcome].sendsStub) || !windowOpen || !question) {
+      return null;
+    }
+    const text = await sendStub({
+      settings,
+      conversationId: input.conversationId,
+      channel: conversation!.channel,
+      to: input.to,
+      question,
+    });
+    if (text) {
+      await prisma.aiReply.create({
+        data: {
+          organizationId: input.organizationId,
+          conversationId: input.conversationId,
+          question,
+          answer: text,
+          stub: true,
+          outcome,
+          provider: settings.provider,
+          ownKey: settings.usesOwnKey === true,
+          model: settings.model,
+          ...extra,
+        },
+      });
+    }
+    return text;
+  }
+
+  const decision = shouldBotReply({
+    settings,
+    handedOffAt: conversation.handedOffAt,
+    subscriptionActive: settings.subscriptionActive,
+  });
   if (!decision.reply) {
+    await stub(decision.reason);
     return { status: "skipped", reason: decision.reason };
   }
 
-  // Вне 24-часового окна WhatsApp не даст отправить свободный текст — бот
-  // тихо промолчит, а не потратит пакет ответов на заведомо неотправляемое.
-  if (!isReplyWindowOpen(conversation.channel, conversation)) {
+  // Вне 24-часового окна WhatsApp не даст отправить свободный текст: бот тихо
+  // промолчит, а не потратит пакет ответов на заведомо неотправляемое.
+  if (!windowOpen) {
     return { status: "skipped", reason: "window-closed" };
-  }
-
-  // История приходит от свежих к старым — боту нужен обычный порядок.
-  const history: ChatTurn[] = conversation.messages
-    .slice()
-    .reverse()
-    .map((message) => ({
-      role: message.direction === "INBOUND" ? ("user" as const) : ("assistant" as const),
-      text: message.text ?? `[${message.type}]`,
-    }));
-
-  // Первым должно идти сообщение клиента, иначе Claude отклонит запрос.
-  while (history.length > 0 && history[0].role !== "user") {
-    history.shift();
   }
   if (history.length === 0) {
     return { status: "skipped", reason: "в диалоге нет сообщений клиента" };
   }
 
-  const question = [...history].reverse().find((turn) => turn.role === "user")?.text ?? "";
+  // Ключ клиента: его ответы наш пакет не тратят. Не расшифровался — бот молчит, заглушка уходит.
+  const own = settings.usesOwnKey ? await loadOwnKey(input.organizationId) : null;
+  if (own && "error" in own) {
+    await setKeyError(input.organizationId, own.error);
+    await stub("llm-auth", { error: "Нужно заново ввести ваш API-ключ." });
+    return { status: "failed", error: "ключ не расшифровался" };
+  }
+
+  // Ответ на нашем ключе занимается до запроса: параллельные воркеры не превысят пакет.
+  let periodStart: Date | null = null;
+  if (!own) {
+    periodStart = await reserveAnswer(input.organizationId, settings.answersLimit);
+    if (!periodStart) {
+      await stub("quota");
+      return { status: "skipped", reason: "quota" };
+    }
+  }
+
   const orderFields = await getOrderFields(input.organizationId);
 
+  let result: Awaited<ReturnType<typeof askBot>>;
   try {
-    const result = await askBot({
+    result = await askBot({
+      provider: settings.provider,
       model: settings.model,
       companyProfile: settings.companyProfile,
       rules: settings.rules,
       history,
       orderFields,
+      org: input.organizationId,
+      apiKey: own?.apiKey,
     });
+    if (settings.ownKey?.error) {
+      await setKeyError(input.organizationId, null, true);
+    }
+  } catch (error) {
+    // Запроса не было или он не дал ответа: занятый ответ возвращается в пакет.
+    if (periodStart) {
+      await refundAnswer(input.organizationId, periodStart);
+    }
+    await alertPlatformError(settings.provider, error);
+    // Ошибка ключа клиента — на плашку и баннер. Разовый лимит частоты ключ не портит.
+    if (own && error instanceof LlmError && error.owner === "client" && (KEY_ERROR_CODES as readonly string[]).includes(error.code)) {
+      await setKeyError(input.organizationId, error.code);
+    }
 
-    // Ответ засчитывается в пакет независимо от исхода: запрос оплачен в любом случае.
-    await prisma.aiBot.updateMany({
-      where: { organizationId: input.organizationId },
-      data: { answersUsed: { increment: 1 } },
-    });
+    const outcome = outcomeForError(error);
+    const message = error instanceof LlmError ? error.message : "Не удалось получить ответ";
+    const extra = {
+      error: message,
+      httpStatus: error instanceof LlmError ? error.status : undefined,
+      providerCode: error instanceof LlmError ? error.providerCode : undefined,
+    };
+
+    const stubText = await stub(outcome, extra);
+    if (!stubText) {
+      await prisma.aiReply.create({
+        data: {
+          organizationId: input.organizationId,
+          conversationId: input.conversationId,
+          question,
+          outcome,
+          provider: settings.provider,
+          ownKey: settings.usesOwnKey === true,
+          model: settings.model,
+          ...extra,
+        },
+      });
+    }
+
+    return { status: "failed", error: message };
+  }
+
+  try {
+    // Заглушка вместо тишины: модель передала диалог человеку и ничего не написала.
+    const handoffStub = result.handoff && !result.answer ? await stub("handoff", {}, true) : null;
 
     await prisma.aiReply.create({
       data: {
@@ -144,6 +521,11 @@ export async function runAiBot(input: {
         answer: result.answer,
         handoff: result.handoff,
         handoffReason: result.handoffReason,
+        outcome: result.handoff ? "handoff" : "answered",
+        provider: result.provider ?? settings.provider,
+        ownKey: settings.usesOwnKey === true,
+        model: result.model ?? settings.model,
+        latencyMs: result.latencyMs,
         inputTokens: result.inputTokens,
         cachedTokens: result.cachedTokens,
         outputTokens: result.outputTokens,
@@ -169,38 +551,20 @@ export async function runAiBot(input: {
     }
 
     if (result.answer) {
-      const { externalMessageId } = await sendChannelText({
+      await sendToClient({
+        conversationId: input.conversationId,
         channel: conversation.channel,
         to: input.to,
         text: result.answer,
-      });
-      const now = new Date();
-
-      await prisma.message.create({
-        data: {
-          externalMessageId,
-          channelId: conversation.channel.id,
-          conversationId: input.conversationId,
-          direction: "OUTBOUND",
-          type: "text",
-          text: result.answer,
-          status: "sent",
-          timestamp: now,
-        },
-      });
-
-      await prisma.conversation.update({
-        where: { id: input.conversationId },
-        data: { lastMessageAt: now },
       });
     }
 
     if (result.handoff) {
       return { status: "handoff", reason: result.handoffReason };
     }
-    return { status: "answered", text: result.answer ?? "" };
+    return { status: "answered", text: result.answer ?? handoffStub ?? "" };
   } catch (error) {
-    const message = error instanceof Error ? error.message : "Не удалось получить ответ";
+    const message = error instanceof Error ? error.message : "Не удалось отправить ответ";
 
     await prisma.aiReply.create({
       data: {
@@ -208,9 +572,57 @@ export async function runAiBot(input: {
         conversationId: input.conversationId,
         question,
         error: message,
+        outcome: "send-failed",
+        provider: settings.provider,
+        ownKey: settings.usesOwnKey === true,
+        model: settings.model,
       },
     });
 
     return { status: "failed", error: message };
   }
+}
+
+/** Начало календарных суток по Алматы (UTC+5, летнего времени нет). */
+function startOfDayAlmaty(now = new Date()): Date {
+  const shifted = new Date(now.getTime() + 5 * 3600 * 1000);
+  return new Date(Date.UTC(shifted.getUTCFullYear(), shifted.getUTCMonth(), shifted.getUTCDate()) - 5 * 3600 * 1000);
+}
+
+/**
+ * Занимает одну проверку в тест-чате на нашем ключе. Запись создаётся до вызова модели:
+ * упавший провайдер иначе можно дёргать в обход лимита. Возвращает id записи или null,
+ * если лимит выбран.
+ */
+export async function reserveTestUsage(
+  organizationId: string,
+  limit: number,
+  lifetime: boolean,
+  provider: ProviderId,
+  model: string,
+  kind: "TEST" | "GENERATOR" = "TEST",
+): Promise<string | null> {
+  const used = await countUsage(organizationId, kind, lifetime);
+  if (used >= limit) {
+    return null;
+  }
+  const row = await prisma.aiUsage.create({ data: { organizationId, kind, provider, model } });
+  return row.id;
+}
+
+/** Сколько вызовов этого вида уже сделано: за сегодня или, до пробного периода, за всё время. */
+export function countUsage(organizationId: string, kind: "TEST" | "GENERATOR", lifetime: boolean): Promise<number> {
+  return prisma.aiUsage.count({
+    where: { organizationId, kind, ...(lifetime ? {} : { createdAt: { gte: startOfDayAlmaty() } }) },
+  });
+}
+
+export async function finishUsage(
+  id: string,
+  result: { inputTokens?: number; outputTokens?: number; error?: string },
+): Promise<void> {
+  await prisma.aiUsage.update({
+    where: { id },
+    data: { inputTokens: result.inputTokens ?? 0, outputTokens: result.outputTokens ?? 0, error: result.error ?? null },
+  });
 }
