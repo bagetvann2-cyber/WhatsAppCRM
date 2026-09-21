@@ -1,0 +1,46 @@
+name: CI
+
+on:
+  push:
+    branches: [master]
+  pull_request:
+
+jobs:
+  check:
+    runs-on: ubuntu-latest
+    timeout-minutes: 15
+    services:
+      postgres:
+        image: postgres:17
+        env:
+          POSTGRES_USER: ci
+          POSTGRES_PASSWORD: ci
+          POSTGRES_DB: whatsapp_crm_ci
+        ports: ["5432:5432"]
+        options: >-
+          --health-cmd "pg_isready -U ci" --health-interval 5s --health-timeout 5s --health-retries 10
+    env:
+      DATABASE_URL: postgresql://ci:ci@localhost:5432/whatsapp_crm_ci
+      # Заглушки: тесты ходят в реальную базу, но не во внешние сервисы.
+      ENCRYPTION_KEY: MDEyMzQ1Njc4OWFiY2RlZjAxMjM0NTY3ODlhYmNkZWY=
+      WHATSAPP_APP_SECRET: ci
+      WHATSAPP_VERIFY_TOKEN: ci
+      WHATSAPP_TOKEN: ci
+      WHATSAPP_PHONE_NUMBER_ID: "1"
+      NEXT_PUBLIC_WHATSAPP_APP_ID: "1"
+      NEXT_PUBLIC_WHATSAPP_CONFIG_ID: "1"
+      RESEND_API_KEY: ci
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 22
+          cache: npm
+      - run: npm ci
+      - run: npx prisma generate
+      - run: npx prisma migrate deploy
+      # PageProps/RouteContext — глобальные типы, их создаёт Next.
+      - run: npx next typegen
+      - run: npx tsc --noEmit
+      - run: npx eslint
+      - run: npx vitest run
