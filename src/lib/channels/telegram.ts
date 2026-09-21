@@ -1,6 +1,6 @@
 import type { Channel } from "@/generated/prisma/client";
 import { decryptJson } from "@/lib/crypto";
-import { sendMessage, type TelegramCredentials } from "@/lib/telegram/client";
+import { sendMessage, sendTypingAction, type TelegramCredentials } from "@/lib/telegram/client";
 import { ChannelSendError, type ChannelAdapter } from "./types";
 
 export type { TelegramCredentials } from "@/lib/telegram/client";
@@ -17,5 +17,9 @@ export const telegramAdapter: ChannelAdapter = {
     const { botToken } = telegramCredentials(channel);
     const { messageId } = await sendMessage(botToken, to, text);
     return { externalMessageId: messageId };
+  },
+
+  async sendTyping({ channel, to }) {
+    await sendTypingAction(telegramCredentials(channel).botToken, to);
   },
 };

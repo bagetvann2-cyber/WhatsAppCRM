@@ -370,6 +370,10 @@ export async function runAiBot(input: {
   conversationId: string;
   /** Адресат в терминах канала: номер телефона у WhatsApp, chat_id у Telegram. */
   to: string;
+  /** Бот начал думать над ответом: самое время показать клиенту «печатает…». */
+  onThinking?: (channel: Conversation["channel"]) => void;
+  /** Ответ готов, но ещё не отправлен: здесь можно выдержать паузу «печатания». */
+  beforeSend?: (text: string) => Promise<void>;
 }): Promise<BotRun> {
   const settings = await getBot(input.organizationId);
   const conversation = await loadConversation(input.conversationId);
@@ -458,6 +462,7 @@ export async function runAiBot(input: {
 
   let result: Awaited<ReturnType<typeof askBot>>;
   try {
+    input.onThinking?.(conversation.channel);
     result = await askBot({
       provider: settings.provider,
       model: settings.model,
@@ -551,6 +556,7 @@ export async function runAiBot(input: {
     }
 
     if (result.answer) {
+      await input.beforeSend?.(result.answer);
       await sendToClient({
         conversationId: input.conversationId,
         channel: conversation.channel,

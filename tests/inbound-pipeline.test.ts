@@ -19,9 +19,16 @@ vi.mock("@/lib/queue", async (importOriginal) => ({
   ...(await importOriginal<typeof import("@/lib/queue")>()),
   enqueueRunBot: enqueueBotMock,
 }));
+const typingMock = vi.hoisted(() => vi.fn());
 vi.mock("@/lib/channels", async (importOriginal) => ({
   ...(await importOriginal<typeof import("@/lib/channels")>()),
   sendChannelText: sendMock,
+  sendChannelTyping: typingMock,
+}));
+// Пауза «печатания» в тестах не нужна: проверяем, что индикатор показан, а не что прошло время.
+vi.mock("@/lib/typing", async (importOriginal) => ({
+  ...(await importOriginal<typeof import("@/lib/typing")>()),
+  sleep: async () => {},
 }));
 vi.mock("@/lib/ai-client", () => ({ askBot: askMock }));
 
@@ -29,6 +36,7 @@ beforeEach(async () => {
   sendMock.mockReset();
   askMock.mockReset();
   enqueueBotMock.mockReset();
+  typingMock.mockReset();
   let sent = 0;
   sendMock.mockImplementation(async () => ({ externalMessageId: `${phoneNumberId}.OUT.${++sent}` }));
 
@@ -146,6 +154,11 @@ test("без автоответов ИИ-бот отвечает и сохран
   await runBotForMessage(enqueueBotMock.mock.calls[0][0]);
 
   expect(askMock).toHaveBeenCalledTimes(1);
+  // «Печатает…» показано один раз и с привязкой к входящему сообщению (нужно WhatsApp).
+  expect(typingMock).toHaveBeenCalledTimes(1);
+  expect(typingMock).toHaveBeenCalledWith(
+    expect.objectContaining({ to: waId, inboundMessageId: `${phoneNumberId}.wamid.1` }),
+  );
   const outbound = await prisma.message.findMany({ where: { conversationId, direction: "OUTBOUND" } });
   expect(outbound).toHaveLength(1);
   expect(outbound[0].text).toBe("Чем можем помочь?");
@@ -178,6 +191,8 @@ test("серия быстрых сообщений: бот отвечает од
   for (const j of jobs) await runBotForMessage(j);
 
   expect(askMock).toHaveBeenCalledTimes(1);
+  // Пропущенные задания серии «печатает…» не показывают: индикатор только у того, кто ответит.
+  expect(typingMock).toHaveBeenCalledTimes(1);
   const outbound = await prisma.message.findMany({
     where: { conversationId: first.conversationId, direction: "OUTBOUND" },
   });

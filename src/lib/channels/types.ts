@@ -12,4 +12,6 @@ export type ChannelSendResult = { externalMessageId: string };
  */
 export interface ChannelAdapter {
   sendText(input: { channel: Channel; to: string; text: string }): Promise<ChannelSendResult>;
+  /** Индикатор «печатает…». У канала может не быть — тогда просто не реализуется. */
+  sendTyping?(input: { channel: Channel; to: string; inboundMessageId: string | null }): Promise<void>;
 }

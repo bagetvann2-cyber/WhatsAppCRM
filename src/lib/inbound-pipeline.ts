@@ -4,6 +4,7 @@ import { runAiBot } from "@/lib/ai-bot-store";
 import { runAutomation } from "@/lib/automation-store";
 import { ensureMediaFile } from "@/lib/media-store";
 import { notifyConversationUpdate } from "@/lib/notify";
+import { humanTypingMs, sleep, startTyping } from "@/lib/typing";
 import { enqueueRunBot, type ProcessMessageJob } from "@/lib/queue";
 import { handleUnsubscribeMessage, UNSUBSCRIBE_CONFIRMATION } from "@/lib/unsubscribe";
 
@@ -85,19 +86,34 @@ export async function runBotForMessage(job: ProcessMessageJob): Promise<void> {
   const latest = await prisma.message.findFirst({
     where: { conversationId: job.conversationId, direction: "INBOUND" },
     orderBy: [{ timestamp: "desc" }, { createdAt: "desc" }],
-    select: { id: true },
+    select: { id: true, externalMessageId: true },
   });
   if (latest && latest.id !== job.messageId) {
     return;
   }
 
-  const bot = await runAiBot({
-    organizationId: job.organizationId,
-    conversationId: job.conversationId,
-    to: job.to,
-  });
+  // Клиент видит «печатает…» с начала работы над ответом и до отправки, а короткий
+  // ответ не прилетает мгновенно: пауза растёт с длиной текста, как у человека.
+  const typing: { current: ReturnType<typeof startTyping> | null } = { current: null };
+  try {
+    const bot = await runAiBot({
+      organizationId: job.organizationId,
+      conversationId: job.conversationId,
+      to: job.to,
+      onThinking: (channel) => {
+        typing.current = startTyping({ channel, to: job.to, inboundMessageId: latest?.externalMessageId ?? null });
+      },
+      beforeSend: async (text) => {
+        if (typing.current) {
+          await sleep(Math.max(0, humanTypingMs(text) - (Date.now() - typing.current.startedAt)));
+        }
+      },
+    });
 
-  if (bot.status === "answered" || bot.status === "handoff") {
-    await notifyConversationUpdate(job.conversationId);
+    if (bot.status === "answered" || bot.status === "handoff") {
+      await notifyConversationUpdate(job.conversationId);
+    }
+  } finally {
+    typing.current?.stop();
   }
 }

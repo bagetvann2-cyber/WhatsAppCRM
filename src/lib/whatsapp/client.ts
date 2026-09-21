@@ -130,3 +130,17 @@ export async function sendTextMessage(
 
   return { wamid };
 }
+
+/**
+ * «Печатает…» у клиента до 25 секунд или до нашего сообщения. Meta привязывает индикатор
+ * к входящему сообщению и заодно отмечает его прочитанным — так и задумано.
+ */
+export async function sendTypingIndicator(creds: WhatsAppCredentials, inboundWamid: string): Promise<void> {
+  const url = `https://graph.facebook.com/${env.graphVersion()}/${creds.phoneNumberId}/messages`;
+  await graphFetch(url, creds.accessToken, {
+    messaging_product: "whatsapp",
+    status: "read",
+    message_id: inboundWamid,
+    typing_indicator: { type: "text" },
+  });
+}
