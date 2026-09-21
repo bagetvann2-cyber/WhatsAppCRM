@@ -18,6 +18,7 @@ import {
 } from "@/lib/conversations";
 import { dayKey, dayLabel, formatPhone, initials } from "@/lib/format";
 import { isReplyWindowOpen } from "@/lib/conversation-window";
+import { returnToBotAction } from "./actions";
 import { requireUser } from "@/lib/session";
 import { canManageTeam, listMembers } from "@/lib/team";
 
@@ -136,6 +137,19 @@ export default async function ChatPage({ params, searchParams }: PageProps<"/cha
             canManage={canManageTeam(role)}
             meId={user.id}
           />
+
+          {conversation.handedOffAt && (
+            <form action={returnToBotAction}>
+              <input type="hidden" name="conversationId" value={conversation.id} />
+              <button
+                type="submit"
+                title="Бот передал диалог человеку и молчит. Кнопка вернёт ему ответы клиенту."
+                className="rounded-lg border border-line bg-panel-muted px-3 py-2 text-sm font-medium text-ink transition-colors hover:border-accent hover:text-accent"
+              >
+                Вернуть боту
+              </button>
+            </form>
+          )}
 
           <WindowTimer expiresAt={conversation.windowExpiresAt?.toISOString() ?? null} />
         </header>

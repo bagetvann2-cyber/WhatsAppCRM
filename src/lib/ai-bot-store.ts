@@ -626,3 +626,16 @@ export async function finishUsage(
     data: { inputTokens: result.inputTokens ?? 0, outputTokens: result.outputTokens ?? 0, error: result.error ?? null },
   });
 }
+
+/**
+ * Вернуть диалог боту: после передачи оператору бот молчит, пока не сброшена
+ * отметка handedOffAt. Ответственного не трогаем — оператор остаётся в карточке.
+ * false — диалога нет, он чужой или бот его и не передавал.
+ */
+export async function returnConversationToBot(organizationId: string, conversationId: string): Promise<boolean> {
+  const result = await prisma.conversation.updateMany({
+    where: { id: conversationId, organizationId, handedOffAt: { not: null } },
+    data: { handedOffAt: null },
+  });
+  return result.count > 0;
+}
