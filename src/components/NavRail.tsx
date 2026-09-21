@@ -62,11 +62,11 @@ export function NavRail({
   return (
     <nav
       aria-label="Разделы кабинета"
-      className="flex shrink-0 flex-row items-center gap-1 border-line bg-panel-muted px-2 py-2 md:h-full md:min-h-0 md:w-16 md:flex-col md:overflow-y-auto md:border-r md:px-0 md:py-3"
+      className="flex shrink-0 flex-row items-center gap-1 border-line bg-panel-muted px-2 py-2 md:h-full md:min-h-0 md:w-20 md:flex-col md:overflow-y-auto md:overflow-x-hidden md:border-r md:px-0 md:py-2 md:[scrollbar-width:none] md:[&::-webkit-scrollbar]:hidden"
     >
       <span
         title={organizationName}
-        className="mb-0 hidden size-9 shrink-0 place-items-center rounded-lg bg-accent text-sm font-bold text-accent-ink md:mb-3 md:grid"
+        className="mb-0 hidden size-9 shrink-0 place-items-center rounded-lg bg-accent text-sm font-bold text-accent-ink md:mb-2 md:grid"
       >
         {initials(organizationName, organizationName)}
       </span>
@@ -78,7 +78,7 @@ export function NavRail({
             key={href}
             href={href}
             aria-current={active ? "page" : undefined}
-            className={`group relative flex flex-1 flex-col items-center justify-center gap-0.5 rounded-lg px-2 py-1.5 transition-colors md:flex-none md:w-12 ${
+            className={`group relative flex flex-1 flex-col items-center justify-center gap-0.5 rounded-lg px-2 py-1.5 transition-colors md:w-[4.5rem] md:flex-none md:py-1 ${
               active ? "bg-accent-soft text-accent" : "text-ink-muted hover:bg-panel hover:text-ink"
             }`}
           >
