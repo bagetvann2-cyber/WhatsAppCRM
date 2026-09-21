@@ -62,7 +62,7 @@ export function NavRail({
   return (
     <nav
       aria-label="Разделы кабинета"
-      className="flex shrink-0 flex-row items-center gap-1 border-line bg-panel-muted px-2 py-2 md:h-full md:w-16 md:flex-col md:border-r md:px-0 md:py-3"
+      className="flex shrink-0 flex-row items-center gap-1 border-line bg-panel-muted px-2 py-2 md:h-full md:min-h-0 md:w-16 md:flex-col md:overflow-y-auto md:border-r md:px-0 md:py-3"
     >
       <span
         title={organizationName}
@@ -94,7 +94,7 @@ export function NavRail({
         );
       })}
 
-      <div className="ml-auto flex items-center gap-1 md:mt-auto md:ml-0 md:flex-col">
+      <div className="ml-auto flex items-center gap-1 md:sticky md:bottom-0 md:mt-auto md:ml-0 md:flex-col md:bg-panel-muted md:pt-1">
         <span
           title={userLabel}
           className="grid size-9 place-items-center rounded-full bg-panel text-xs font-semibold text-ink-muted"

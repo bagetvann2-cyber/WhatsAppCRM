@@ -11,7 +11,7 @@ export default async function AppLayout({ children }: { children: ReactNode }) {
   const { organization, user, role } = await requireUser();
 
   return (
-    <div className="flex h-full flex-col-reverse md:flex-row">
+    <div className="flex h-dvh flex-col-reverse md:flex-row">
       <NavRail
         organizationName={organization.name}
         userLabel={user.name ?? user.email}
