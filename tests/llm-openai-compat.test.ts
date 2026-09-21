@@ -189,3 +189,17 @@ test("обрыв сети — недоступность, а не сырая о�
 
   expect(await openaiCompatComplete("OPENAI", req, ctx).catch((e) => e)).toMatchObject({ code: "unavailable" });
 });
+
+test("gpt-5.x с инструментами уходит с reasoning_effort none, остальные — без него", async () => {
+  const sent = stubFetch([chat({ content: "a" }), chat({ content: "b" }), chat({ content: "c" }), chat({ content: "d" })]);
+
+  await openaiCompatComplete("OPENAI", req, ctx);
+  await openaiCompatComplete("OPENAI", { ...req, model: "gpt-5-mini" }, ctx);
+  await openaiCompatComplete("OPENAI", { ...req, tools: undefined }, ctx);
+  await openaiCompatComplete("GEMINI", { ...req, model: "gemini-3.1-flash-lite" }, ctx);
+
+  expect(sent[0].body.reasoning_effort).toBe("none");
+  expect(sent[1].body).not.toHaveProperty("reasoning_effort");
+  expect(sent[2].body).not.toHaveProperty("reasoning_effort");
+  expect(sent[3].body).not.toHaveProperty("reasoning_effort");
+});

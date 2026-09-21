@@ -84,6 +84,16 @@ async function httpError(res: Response, ownKey: boolean): Promise<LlmError> {
   return new LlmError(classify(res.status, providerCode, message), ownKey, res.status, providerCode, Number.isFinite(retryAfter) ? retryAfter * 1000 : undefined);
 }
 
+/**
+ * gpt-5.1 и новее не принимают функции-инструменты в chat/completions, пока
+ * размышление не выключено (400 «Function tools with reasoning_effort…»).
+ * Боту нужны инструменты всегда, а ответ клиенту не требует размышлений.
+ * Старые gpt-5 и gpt-5-mini значение "none" не знают — их не трогаем.
+ */
+export function needsReasoningNone(provider: ProviderId, model: string, hasTools: boolean): boolean {
+  return provider === "OPENAI" && hasTools && /^gpt-5\.\d/.test(model);
+}
+
 /** OpenAI, Gemini (через его OpenAI-совместимый адрес) и OpenRouter: один протокол, разные адреса. */
 export async function openaiCompatComplete(provider: ProviderId, req: LlmRequest, ctx: CallContext): Promise<LlmResult> {
   const info = PROVIDER_INFO[provider];
@@ -112,6 +122,7 @@ export async function openaiCompatComplete(provider: ProviderId, req: LlmRequest
         [info.maxTokensParam]: req.maxTokens,
         messages,
         ...(tools?.length ? { tools } : {}),
+        ...(needsReasoningNone(provider, req.model, Boolean(tools?.length)) ? { reasoning_effort: "none" } : {}),
         ...(choice ? { tool_choice: choice } : {}),
       }),
       signal: ctx.signal,
