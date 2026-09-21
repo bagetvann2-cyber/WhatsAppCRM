@@ -17,6 +17,30 @@ APP="crm"
 
 cd "$(dirname "$0")/.."
 
+echo "==> Проверки перед выкладкой"
+# Выкатываем только master, совпадающий с origin: прод однажды упал из-за сборки
+# с чужой ветки, под которую база была мигрирована иначе.
+git fetch -q origin
+branch="$(git rev-parse --abbrev-ref HEAD)"
+if [ "$branch" != "master" ] && [ -z "${DEPLOY_ANY_BRANCH:-}" ]; then
+  echo "Выкатывать можно только с master, сейчас: $branch (обход: DEPLOY_ANY_BRANCH=1)"; exit 1
+fi
+if [ -n "$(git status --porcelain --untracked-files=no)" ]; then
+  echo "Есть незакоммиченные изменения — выкладывать нечего, кроме коммитов"; exit 1
+fi
+if [ "$branch" = "master" ] && [ "$(git rev-parse HEAD)" != "$(git rev-parse origin/master)" ]; then
+  echo "master расходится с origin/master — сначала push/pull"; exit 1
+fi
+# Все миграции из репозитория должны быть на проде: deploy.sh их не накатывает,
+# а код ждёт новую схему. Лишние на проде (из другой ветки) — тоже стоп.
+applied="$(ssh "$SERVER" "cd $REMOTE_DIR && U=\$(grep '^DATABASE_URL=' .env.local | cut -d= -f2- | tr -d '\"' | cut -d'?' -f1) && psql \"\$U\" -At -c \"select distinct migration_name from _prisma_migrations where finished_at is not null\"" | sort)"
+local_migrations="$(ls prisma/migrations | grep -v toml | sort)"
+if [ "$applied" != "$local_migrations" ]; then
+  echo "Миграции репозитория и прод-базы расходятся:"
+  diff <(echo "$local_migrations") <(echo "$applied") || true
+  echo "Накатите миграции (README, «Демо-стенд») или выкатывайте нужную ветку."; exit 1
+fi
+
 echo "==> Сборка"
 npm run build
 
