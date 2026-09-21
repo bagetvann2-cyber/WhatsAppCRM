@@ -158,7 +158,7 @@ export default async function ChatPage({ params, searchParams }: PageProps<"/cha
                 </h3>
 
                 {day.messages.map((message) => (
-                  <MessageBubble key={message.id} message={message} />
+                  <MessageBubble key={message.id} message={message} channelType={conversation.channel.type} />
                 ))}
               </section>
             ))}
