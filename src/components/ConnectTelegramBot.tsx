@@ -1,6 +1,6 @@
 "use client";
 
-import { useState } from "react";
+import { useState, type CSSProperties } from "react";
 import { useRouter } from "next/navigation";
 import { AlertIcon } from "@/components/icons";
 
@@ -47,9 +47,15 @@ export function ConnectTelegramBot() {
     <div className="flex flex-col gap-3">
       <div className="flex flex-col gap-2 sm:flex-row">
         <input
-          type="password"
+          // Не type="password": менеджеры паролей и Edge вмешиваются во вставку.
+          // Точки рисует CSS, а пробелы и переносы из буфера выбрасываем.
+          type="text"
+          autoComplete="off"
+          spellCheck={false}
+          data-1p-ignore
+          style={{ WebkitTextSecurity: "disc" } as CSSProperties}
           value={token}
-          onChange={(event) => setToken(event.target.value)}
+          onChange={(event) => setToken(event.target.value.replace(/\s+/g, ""))}
           placeholder="Токен от @BotFather"
           className="flex-1 rounded-lg border border-line bg-surface px-3 py-2 text-sm outline-none focus:border-accent"
         />

@@ -36,7 +36,11 @@ export async function POST(request: Request): Promise<Response> {
   try {
     bot = await getMe(botToken);
   } catch (error) {
-    const message = error instanceof Error ? error.message : "Не удалось проверить токен";
+    const raw = error instanceof Error ? error.message : "";
+    // Telegram на неверный токен отвечает голым «Not Found» / «Unauthorized».
+    const message = /^(Not Found|Unauthorized)$/i.test(raw)
+      ? "Telegram не принял токен. Скопируйте его у @BotFather целиком, вида 123456789:AA…"
+      : raw || "Не удалось проверить токен";
     return Response.json({ error: message }, { status: 400 });
   }
 
