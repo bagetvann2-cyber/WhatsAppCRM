@@ -18,6 +18,8 @@ export interface ChannelAdapter {
     to: string;
     file: { bytes: Uint8Array; mimeType: string; filename: string };
     caption: string | null;
+    /** Записанное голосовое: канал покажет его как голосовое, если умеет. */
+    voice?: boolean;
   }): Promise<ChannelSendResult>;
   /** Индикатор «печатает…». У канала может не быть — тогда просто не реализуется. */
   sendTyping?(input: { channel: Channel; to: string; inboundMessageId: string | null }): Promise<void>;

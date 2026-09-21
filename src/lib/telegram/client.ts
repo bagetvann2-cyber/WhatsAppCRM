@@ -79,14 +79,18 @@ const PHOTO_LIMIT = 10 * 1024 * 1024;
 /** Caption у медиа Telegram короче обычного текста. */
 const CAPTION_LIMIT = 1024;
 
-type MediaMethod = { method: "sendPhoto" | "sendVideo" | "sendAudio" | "sendDocument"; field: string };
+type MediaMethod = { method: "sendPhoto" | "sendVideo" | "sendAudio" | "sendVoice" | "sendDocument"; field: string };
 
 /**
  * Каким методом слать файл. Всё, что Telegram не умеет показать как фото, видео или музыку
  * (svg, gif, ogg, большие картинки), уходит документом: так файл дойдёт как есть.
  */
-export function mediaMethodFor(mimeType: string, size: number): MediaMethod {
+export function mediaMethodFor(mimeType: string, size: number, voice = false): MediaMethod {
   const mime = mimeType.split(";")[0].trim().toLowerCase();
+  // Голосовое с волной и кружком воспроизведения — только Ogg/Opus (или mp3/m4a); остальное обычным аудио.
+  if (voice && (mime === "audio/ogg" || mime === "audio/mpeg" || mime === "audio/mp4")) {
+    return { method: "sendVoice", field: "voice" };
+  }
   if ((mime === "image/jpeg" || mime === "image/png") && size <= PHOTO_LIMIT) {
     return { method: "sendPhoto", field: "photo" };
   }
@@ -105,8 +109,9 @@ export async function sendMedia(
   chatId: string,
   file: { bytes: Uint8Array; mimeType: string; filename: string },
   caption: string | null,
+  voice = false,
 ): Promise<{ messageId: string }> {
-  const { method, field } = mediaMethodFor(file.mimeType, file.bytes.byteLength);
+  const { method, field } = mediaMethodFor(file.mimeType, file.bytes.byteLength, voice);
 
   const form = new FormData();
   form.append("chat_id", chatId);

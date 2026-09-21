@@ -19,9 +19,9 @@ export const telegramAdapter: ChannelAdapter = {
     return { externalMessageId: messageId };
   },
 
-  async sendMedia({ channel, to, file, caption }) {
+  async sendMedia({ channel, to, file, caption, voice }) {
     const { botToken } = telegramCredentials(channel);
-    const { messageId } = await sendMedia(botToken, to, file, caption);
+    const { messageId } = await sendMedia(botToken, to, file, caption, voice);
     return { externalMessageId: messageId };
   },
 

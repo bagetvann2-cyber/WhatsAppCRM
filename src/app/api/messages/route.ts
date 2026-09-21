@@ -13,6 +13,7 @@ type Outgoing =
   | {
       kind: "media";
       caption: string | null;
+      voice: boolean;
       file: { bytes: Uint8Array; mimeType: string; filename: string };
     };
 
@@ -42,6 +43,7 @@ async function readOutgoing(
       message: {
         kind: "media",
         caption: typeof caption === "string" && caption.trim() ? caption.trim() : null,
+        voice: form?.get("voice") === "1",
         file: {
           bytes: new Uint8Array(await file.arrayBuffer()),
           mimeType: file.type || "application/octet-stream",
@@ -150,6 +152,7 @@ export async function POST(request: Request): Promise<Response> {
             to: conversation.contact.externalUserId,
             file: message.file,
             caption: message.caption,
+            voice: message.voice,
           })
         ).externalMessageId;
       }
@@ -170,6 +173,7 @@ export async function POST(request: Request): Promise<Response> {
           mimeType: message.file.mimeType,
           filename: kind === "document" ? message.file.filename : null,
           mediaSize: message.file.bytes.byteLength,
+          voice: message.voice,
         },
       });
 

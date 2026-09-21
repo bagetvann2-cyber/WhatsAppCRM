@@ -60,6 +60,13 @@ test("метод отправки выбирается по типу файла"
   expect(mediaMethodFor("application/pdf", 1000).method).toBe("sendDocument");
 });
 
+test("записанное голосовое (Ogg/Opus) уходит как голосовое, обычный ogg — как аудио-файл", () => {
+  expect(mediaMethodFor("audio/ogg", 5000, true)).toEqual({ method: "sendVoice", field: "voice" });
+  // webm Telegram голосовым не признаёт: без флага и в неподходящем формате — обычный путь.
+  expect(mediaMethodFor("audio/webm", 5000, true).method).toBe("sendDocument");
+  expect(mediaMethodFor("audio/ogg", 5000).method).toBe("sendDocument");
+});
+
 test("файл уходит в Telegram и сохраняется в переписке с копией", async () => {
   currentUserMock.mockResolvedValue({
     user: { id: operatorId, email: "operator@tgfiles.test" },

@@ -3,6 +3,7 @@
 import { useRouter } from "next/navigation";
 import { useEffect, useRef, useState, type ClipboardEvent, type DragEvent, type FormEvent, type KeyboardEvent } from "react";
 import { AlertIcon, AttachmentIcon, LockIcon, SendIcon } from "@/components/icons";
+import { VoiceRecorder } from "@/components/VoiceRecorder";
 import { sizeLabel } from "@/lib/media";
 
 /** Столько же принимает сервер: предупредить до отправки честнее, чем после. */
@@ -20,6 +21,8 @@ export function Composer({
   const textarea = useRef<HTMLTextAreaElement>(null);
   const [text, setText] = useState("");
   const [file, setFile] = useState<File | null>(null);
+  /** Длительность записанного голосового; у обычного файла пусто. */
+  const [voiceSeconds, setVoiceSeconds] = useState<number | null>(null);
   const [dragging, setDragging] = useState(false);
   const [error, setError] = useState<string | null>(null);
   const [sending, setSending] = useState(false);
@@ -44,11 +47,18 @@ export function Composer({
     }
     setError(null);
     setFile(next);
+    setVoiceSeconds(null);
     textarea.current?.focus();
+  }
+
+  function pickVoice(recorded: File, seconds: number) {
+    pickFile(recorded);
+    setVoiceSeconds(seconds);
   }
 
   function clearFile() {
     setFile(null);
+    setVoiceSeconds(null);
     if (fileInput.current) {
       fileInput.current.value = "";
     }
@@ -66,7 +76,7 @@ export function Composer({
     try {
       // С файлом уходит форма, без файла — обычный JSON: сервер понимает оба.
       const request: RequestInit = file
-        ? { method: "POST", body: toForm(conversationId, file, text) }
+        ? { method: "POST", body: toForm(conversationId, file, text, voiceSeconds !== null) }
         : {
             method: "POST",
             headers: { "content-type": "application/json" },
@@ -159,7 +169,9 @@ export function Composer({
         <div className="mb-3 flex items-center gap-3 rounded-lg border border-line bg-panel-muted px-3 py-2">
           <AttachmentIcon className="size-4 shrink-0 text-ink-muted" />
           <span className="min-w-0 flex-1">
-            <span className="block truncate text-sm text-ink">{file.name}</span>
+            <span className="block truncate text-sm text-ink">
+              {voiceSeconds !== null ? `Голосовое сообщение, ${Math.floor(voiceSeconds / 60)}:${String(voiceSeconds % 60).padStart(2, "0")}` : file.name}
+            </span>
             <span className="block text-xs text-ink-faint">{sizeLabel(file.size)}</span>
           </span>
           <button
@@ -190,6 +202,8 @@ export function Composer({
         >
           <AttachmentIcon className="size-5" />
         </button>
+
+        <VoiceRecorder onRecorded={pickVoice} onError={setError} disabled={sending || Boolean(file)} />
 
         <textarea
           value={text}
@@ -222,10 +236,13 @@ export function Composer({
   );
 }
 
-function toForm(conversationId: string, file: File, caption: string): FormData {
+function toForm(conversationId: string, file: File, caption: string, voice: boolean): FormData {
   const form = new FormData();
   form.append("conversationId", conversationId);
   form.append("file", file);
+  if (voice) {
+    form.append("voice", "1");
+  }
   if (caption.trim()) {
     form.append("caption", caption.trim());
   }
