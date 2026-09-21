@@ -9,6 +9,10 @@ import { env } from "@/lib/env";
  * выполняться внутри запроса.
  */
 export const QUEUE_PROCESS_MESSAGE = "process-message";
+/** Ответ ИИ-помощника — отдельное задание с задержкой: клиент часто пишет фразу в несколько сообщений. */
+export const QUEUE_RUN_BOT = "run-bot";
+/** Сколько ждать тишины от клиента, прежде чем бот ответит на всю серию сообщений. */
+export const BOT_DEBOUNCE_SECONDS = 6;
 
 export type ProcessMessageJob = {
   messageId: string;
@@ -33,6 +37,7 @@ async function getBoss(): Promise<PgBoss> {
       .start()
       .then(async (boss) => {
         await boss.createQueue(QUEUE_PROCESS_MESSAGE);
+        await boss.createQueue(QUEUE_RUN_BOT);
         return boss;
       });
   }
@@ -58,6 +63,28 @@ export async function workProcessMessage(
   const boss = await getBoss();
   await boss.work<ProcessMessageJob>(
     QUEUE_PROCESS_MESSAGE,
+    { localConcurrency: 5, localGroupConcurrency: 1 },
+    async ([job]) => {
+      await handler(job.data);
+    },
+  );
+}
+
+/** Ставит ответ бота на это сообщение с задержкой. Каждое новое сообщение клиента ставит своё
+ * задание: при запуске устаревшие пропускаются (см. runBotForMessage), отвечает последнее. */
+export async function enqueueRunBot(job: ProcessMessageJob, delaySeconds = BOT_DEBOUNCE_SECONDS): Promise<void> {
+  const boss = await getBoss();
+  await boss.send(QUEUE_RUN_BOT, job, {
+    singletonKey: `bot:${job.messageId}`,
+    startAfter: delaySeconds,
+    group: { id: job.conversationId },
+  });
+}
+
+export async function workRunBot(handler: (job: ProcessMessageJob) => Promise<void>): Promise<void> {
+  const boss = await getBoss();
+  await boss.work<ProcessMessageJob>(
+    QUEUE_RUN_BOT,
     { localConcurrency: 5, localGroupConcurrency: 1 },
     async ([job]) => {
       await handler(job.data);
