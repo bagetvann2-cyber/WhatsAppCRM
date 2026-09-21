@@ -28,3 +28,16 @@ export function adapterFor(channel: Pick<Channel, "type">): ChannelAdapter {
 export async function sendChannelText(input: { channel: Channel; to: string; text: string }) {
   return adapterFor(input.channel).sendText(input);
 }
+
+/** «Печатает…» — приятная мелочь, а не часть доставки: любая ошибка глотается. */
+export async function sendChannelTyping(input: {
+  channel: Channel;
+  to: string;
+  inboundMessageId: string | null;
+}): Promise<void> {
+  try {
+    await adapterFor(input.channel).sendTyping?.(input);
+  } catch {
+    // Нет индикатора — ответ всё равно уйдёт.
+  }
+}

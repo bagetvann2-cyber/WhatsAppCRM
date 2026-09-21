@@ -73,3 +73,8 @@ export async function sendMessage(
 export async function setWebhook(botToken: string, url: string, secretToken: string): Promise<void> {
   await api(botToken, "setWebhook", { url, secret_token: secretToken });
 }
+
+/** Показывает в чате «печатает…» (Telegram гасит его сам через 5 секунд или с новым сообщением). */
+export async function sendTypingAction(botToken: string, chatId: string): Promise<void> {
+  await api(botToken, "sendChatAction", { chat_id: chatId, action: "typing" });
+}

@@ -1,7 +1,7 @@
 import type { Channel } from "@/generated/prisma/client";
 import { env } from "@/lib/env";
 import { decryptJson } from "@/lib/crypto";
-import { sendTextMessage, type WhatsAppCredentials } from "@/lib/whatsapp/client";
+import { sendTextMessage, sendTypingIndicator, type WhatsAppCredentials } from "@/lib/whatsapp/client";
 import { ChannelSendError, type ChannelAdapter } from "./types";
 
 /**
@@ -24,5 +24,11 @@ export const whatsAppAdapter: ChannelAdapter = {
 
     const { wamid } = await sendTextMessage(whatsAppCredentials(channel), to, text);
     return { externalMessageId: wamid };
+  },
+
+  async sendTyping({ channel, inboundMessageId }) {
+    if (channel.externalId && inboundMessageId) {
+      await sendTypingIndicator(whatsAppCredentials(channel), inboundMessageId);
+    }
   },
 };
