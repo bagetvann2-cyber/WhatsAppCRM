@@ -1,8 +1,9 @@
 "use client";
 
 import { useRouter } from "next/navigation";
-import { useRef, useState, type DragEvent, type FormEvent, type KeyboardEvent } from "react";
+import { useEffect, useRef, useState, type ClipboardEvent, type DragEvent, type FormEvent, type KeyboardEvent } from "react";
 import { AlertIcon, AttachmentIcon, LockIcon, SendIcon } from "@/components/icons";
+import { VoiceRecorder } from "@/components/VoiceRecorder";
 import { sizeLabel } from "@/lib/media";
 
 /** Столько же принимает сервер: предупредить до отправки честнее, чем после. */
@@ -17,28 +18,47 @@ export function Composer({
 }) {
   const router = useRouter();
   const fileInput = useRef<HTMLInputElement>(null);
+  const textarea = useRef<HTMLTextAreaElement>(null);
   const [text, setText] = useState("");
   const [file, setFile] = useState<File | null>(null);
+  /** Длительность записанного голосового; у обычного файла пусто. */
+  const [voiceSeconds, setVoiceSeconds] = useState<number | null>(null);
   const [dragging, setDragging] = useState(false);
   const [error, setError] = useState<string | null>(null);
   const [sending, setSending] = useState(false);
 
   const empty = text.trim() === "" && !file;
 
+  // Открыли диалог — сразу можно писать, без клика в поле. На телефоне не трогаем:
+  // там фокус сам поднимает клавиатуру и закрывает половину переписки.
+  useEffect(() => {
+    if (windowOpen && window.matchMedia("(pointer: fine)").matches) {
+      textarea.current?.focus();
+    }
+  }, [conversationId, windowOpen]);
+
   function pickFile(next: File | null) {
     if (!next) {
       return;
     }
     if (next.size > MAX_BYTES) {
-      setError(`Файл больше ${sizeLabel(MAX_BYTES)}. WhatsApp такой не примет.`);
+      setError(`Файл больше ${sizeLabel(MAX_BYTES)}.`);
       return;
     }
     setError(null);
     setFile(next);
+    setVoiceSeconds(null);
+    textarea.current?.focus();
+  }
+
+  function pickVoice(recorded: File, seconds: number) {
+    pickFile(recorded);
+    setVoiceSeconds(seconds);
   }
 
   function clearFile() {
     setFile(null);
+    setVoiceSeconds(null);
     if (fileInput.current) {
       fileInput.current.value = "";
     }
@@ -56,7 +76,7 @@ export function Composer({
     try {
       // С файлом уходит форма, без файла — обычный JSON: сервер понимает оба.
       const request: RequestInit = file
-        ? { method: "POST", body: toForm(conversationId, file, text) }
+        ? { method: "POST", body: toForm(conversationId, file, text, voiceSeconds !== null) }
         : {
             method: "POST",
             headers: { "content-type": "application/json" },
@@ -78,6 +98,8 @@ export function Composer({
       setError("Нет связи с сервером. Сообщение не отправлено.");
     } finally {
       setSending(false);
+      // Пока поле было занято, фокус мог уйти: возвращаем, чтобы писать дальше без мыши.
+      requestAnimationFrame(() => textarea.current?.focus());
     }
   }
 
@@ -86,6 +108,16 @@ export function Composer({
     if (event.key === "Enter" && !event.shiftKey) {
       event.preventDefault();
       void send();
+    }
+  }
+
+  // Ctrl+V со скриншотом или скопированным файлом прикладывает его; чистый текст вставляется как обычно.
+  function onPaste(event: ClipboardEvent<HTMLTextAreaElement>) {
+    const pasted = event.clipboardData.files[0];
+    // Из Word и Excel в буфер попадает и текст, и картинка-снимок: тогда вставляем текст.
+    if (pasted && !event.clipboardData.getData("text/plain")) {
+      event.preventDefault();
+      pickFile(pasted);
     }
   }
 
@@ -137,7 +169,9 @@ export function Composer({
         <div className="mb-3 flex items-center gap-3 rounded-lg border border-line bg-panel-muted px-3 py-2">
           <AttachmentIcon className="size-4 shrink-0 text-ink-muted" />
           <span className="min-w-0 flex-1">
-            <span className="block truncate text-sm text-ink">{file.name}</span>
+            <span className="block truncate text-sm text-ink">
+              {voiceSeconds !== null ? `Голосовое сообщение, ${Math.floor(voiceSeconds / 60)}:${String(voiceSeconds % 60).padStart(2, "0")}` : file.name}
+            </span>
             <span className="block text-xs text-ink-faint">{sizeLabel(file.size)}</span>
           </span>
           <button
@@ -169,15 +203,20 @@ export function Composer({
           <AttachmentIcon className="size-5" />
         </button>
 
+        <VoiceRecorder onRecorded={pickVoice} onError={setError} disabled={sending || Boolean(file)} />
+
         <textarea
           value={text}
           onChange={(event) => setText(event.target.value)}
           onKeyDown={onKeyDown}
-          disabled={sending}
+          onPaste={onPaste}
+          ref={textarea}
+          // readOnly, а не disabled: отключённое поле теряет фокус, и после отправки пришлось бы кликать снова.
+          readOnly={sending}
           rows={1}
           placeholder={file ? "Подпись к файлу — необязательно" : "Введите сообщение"}
           aria-label="Текст сообщения"
-          className="max-h-40 min-h-11 flex-1 resize-y rounded-xl border border-line bg-panel-muted px-4 py-2.5 text-[0.9375rem] text-ink transition-colors placeholder:text-ink-faint hover:border-line-strong focus:border-accent focus:bg-panel disabled:opacity-60"
+          className="max-h-40 min-h-11 flex-1 resize-y rounded-xl border border-line bg-panel-muted px-4 py-2.5 text-[0.9375rem] text-ink transition-colors placeholder:text-ink-faint hover:border-line-strong focus:border-accent focus:bg-panel read-only:opacity-60"
         />
 
         <button
@@ -191,16 +230,19 @@ export function Composer({
       </div>
 
       <p className="mt-2 text-xs text-ink-faint">
-        Enter — отправить, Shift + Enter — новая строка. Файл можно перетащить сюда мышью.
+        Enter — отправить, Shift + Enter — новая строка. Файл можно перетащить сюда или вставить через Ctrl + V.
       </p>
     </form>
   );
 }
 
-function toForm(conversationId: string, file: File, caption: string): FormData {
+function toForm(conversationId: string, file: File, caption: string, voice: boolean): FormData {
   const form = new FormData();
   form.append("conversationId", conversationId);
   form.append("file", file);
+  if (voice) {
+    form.append("voice", "1");
+  }
   if (caption.trim()) {
     form.append("caption", caption.trim());
   }

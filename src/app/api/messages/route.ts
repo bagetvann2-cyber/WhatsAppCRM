@@ -5,7 +5,7 @@ import { mediaKind, sizeLabel } from "@/lib/media";
 import { storeOutgoingMedia } from "@/lib/media-store";
 import { currentUser } from "@/lib/session";
 import { sendMediaMessage, uploadMedia } from "@/lib/whatsapp/media";
-import { sendChannelText } from "@/lib/channels";
+import { adapterFor, sendChannelText } from "@/lib/channels";
 import { isReplyWindowOpen } from "@/lib/conversation-window";
 
 type Outgoing =
@@ -13,6 +13,7 @@ type Outgoing =
   | {
       kind: "media";
       caption: string | null;
+      voice: boolean;
       file: { bytes: Uint8Array; mimeType: string; filename: string };
     };
 
@@ -32,9 +33,7 @@ async function readOutgoing(
     }
 
     if (file.size > env.mediaMaxBytes()) {
-      return {
-        error: `Файл больше ${sizeLabel(env.mediaMaxBytes())}. WhatsApp такой не примет.`,
-      };
+      return { error: `Файл больше ${sizeLabel(env.mediaMaxBytes())}.` };
     }
 
     const caption = form?.get("caption");
@@ -44,6 +43,7 @@ async function readOutgoing(
       message: {
         kind: "media",
         caption: typeof caption === "string" && caption.trim() ? caption.trim() : null,
+        voice: form?.get("voice") === "1",
         file: {
           bytes: new Uint8Array(await file.arrayBuffer()),
           mimeType: file.type || "application/octet-stream",
@@ -97,10 +97,10 @@ export async function POST(request: Request): Promise<Response> {
 
   const { message } = parsed;
 
-  // Файл у Telegram пока не уходит: uploadMedia/sendMediaMessage говорят
-  // только с WhatsApp — портировать на Telegram, когда понадобится.
-  if (message.kind === "media" && conversation.channel.type !== "WHATSAPP") {
-    return Response.json({ error: "Отправка файлов пока доступна только для WhatsApp" }, { status: 422 });
+  // Файл умеют слать WhatsApp (свой путь ниже) и каналы с адаптером sendMedia (Telegram).
+  const mediaAdapter = adapterFor(conversation.channel);
+  if (message.kind === "media" && conversation.channel.type !== "WHATSAPP" && !mediaAdapter.sendMedia) {
+    return Response.json({ error: "Отправка файлов в этом канале пока недоступна" }, { status: 422 });
   }
 
   try {
@@ -131,18 +131,36 @@ export async function POST(request: Request): Promise<Response> {
     } else {
       const kind = mediaKind("unknown", message.file.mimeType);
 
-      // Сначала файл уезжает в Meta и получает id, и только потом уходит
-      // сообщение: отправить можно лишь то, что она уже приняла.
-      const { mediaId } = await uploadMedia(message.file);
-      const { wamid } = await sendMediaMessage(conversation.contact.externalUserId, kind, mediaId, {
-        caption: message.caption,
-        filename: message.file.filename,
-      });
-      sentExternalMessageId = wamid;
+      let mediaId: string | null = null;
+      let externalMessageId: string;
+
+      if (conversation.channel.type === "WHATSAPP") {
+        // Сначала файл уезжает в Meta и получает id, и только потом уходит
+        // сообщение: отправить можно лишь то, что она уже приняла.
+        const uploaded = await uploadMedia(message.file);
+        mediaId = uploaded.mediaId;
+        externalMessageId = (
+          await sendMediaMessage(conversation.contact.externalUserId, kind, mediaId, {
+            caption: message.caption,
+            filename: message.file.filename,
+          })
+        ).wamid;
+      } else {
+        externalMessageId = (
+          await mediaAdapter.sendMedia!({
+            channel: conversation.channel,
+            to: conversation.contact.externalUserId,
+            file: message.file,
+            caption: message.caption,
+            voice: message.voice,
+          })
+        ).externalMessageId;
+      }
+      sentExternalMessageId = externalMessageId;
 
       const stored = await prisma.message.create({
         data: {
-          externalMessageId: wamid,
+          externalMessageId,
           channelId: conversation.channel.id,
           conversationId: conversation.id,
           direction: "OUTBOUND",
@@ -155,6 +173,7 @@ export async function POST(request: Request): Promise<Response> {
           mimeType: message.file.mimeType,
           filename: kind === "document" ? message.file.filename : null,
           mediaSize: message.file.bytes.byteLength,
+          voice: message.voice,
         },
       });
 
