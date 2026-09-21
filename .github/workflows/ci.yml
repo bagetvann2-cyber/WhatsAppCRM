@@ -39,6 +39,8 @@ jobs:
       - run: npm ci
       - run: npx prisma generate
       - run: npx prisma migrate deploy
+      # PageProps/RouteContext — глобальные типы, их создаёт Next.
+      - run: npx next typegen
       - run: npx tsc --noEmit
       - run: npx eslint
       - run: npx vitest run
