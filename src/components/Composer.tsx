@@ -1,7 +1,7 @@
 "use client";
 
 import { useRouter } from "next/navigation";
-import { useRef, useState, type DragEvent, type FormEvent, type KeyboardEvent } from "react";
+import { useEffect, useRef, useState, type ClipboardEvent, type DragEvent, type FormEvent, type KeyboardEvent } from "react";
 import { AlertIcon, AttachmentIcon, LockIcon, SendIcon } from "@/components/icons";
 import { sizeLabel } from "@/lib/media";
 
@@ -17,6 +17,7 @@ export function Composer({
 }) {
   const router = useRouter();
   const fileInput = useRef<HTMLInputElement>(null);
+  const textarea = useRef<HTMLTextAreaElement>(null);
   const [text, setText] = useState("");
   const [file, setFile] = useState<File | null>(null);
   const [dragging, setDragging] = useState(false);
@@ -25,16 +26,25 @@ export function Composer({
 
   const empty = text.trim() === "" && !file;
 
+  // Открыли диалог — сразу можно писать, без клика в поле. На телефоне не трогаем:
+  // там фокус сам поднимает клавиатуру и закрывает половину переписки.
+  useEffect(() => {
+    if (windowOpen && window.matchMedia("(pointer: fine)").matches) {
+      textarea.current?.focus();
+    }
+  }, [conversationId, windowOpen]);
+
   function pickFile(next: File | null) {
     if (!next) {
       return;
     }
     if (next.size > MAX_BYTES) {
-      setError(`Файл больше ${sizeLabel(MAX_BYTES)}. WhatsApp такой не примет.`);
+      setError(`Файл больше ${sizeLabel(MAX_BYTES)}.`);
       return;
     }
     setError(null);
     setFile(next);
+    textarea.current?.focus();
   }
 
   function clearFile() {
@@ -78,6 +88,8 @@ export function Composer({
       setError("Нет связи с сервером. Сообщение не отправлено.");
     } finally {
       setSending(false);
+      // Пока поле было занято, фокус мог уйти: возвращаем, чтобы писать дальше без мыши.
+      requestAnimationFrame(() => textarea.current?.focus());
     }
   }
 
@@ -86,6 +98,16 @@ export function Composer({
     if (event.key === "Enter" && !event.shiftKey) {
       event.preventDefault();
       void send();
+    }
+  }
+
+  // Ctrl+V со скриншотом или скопированным файлом прикладывает его; чистый текст вставляется как обычно.
+  function onPaste(event: ClipboardEvent<HTMLTextAreaElement>) {
+    const pasted = event.clipboardData.files[0];
+    // Из Word и Excel в буфер попадает и текст, и картинка-снимок: тогда вставляем текст.
+    if (pasted && !event.clipboardData.getData("text/plain")) {
+      event.preventDefault();
+      pickFile(pasted);
     }
   }
 
@@ -173,11 +195,14 @@ export function Composer({
           value={text}
           onChange={(event) => setText(event.target.value)}
           onKeyDown={onKeyDown}
-          disabled={sending}
+          onPaste={onPaste}
+          ref={textarea}
+          // readOnly, а не disabled: отключённое поле теряет фокус, и после отправки пришлось бы кликать снова.
+          readOnly={sending}
           rows={1}
           placeholder={file ? "Подпись к файлу — необязательно" : "Введите сообщение"}
           aria-label="Текст сообщения"
-          className="max-h-40 min-h-11 flex-1 resize-y rounded-xl border border-line bg-panel-muted px-4 py-2.5 text-[0.9375rem] text-ink transition-colors placeholder:text-ink-faint hover:border-line-strong focus:border-accent focus:bg-panel disabled:opacity-60"
+          className="max-h-40 min-h-11 flex-1 resize-y rounded-xl border border-line bg-panel-muted px-4 py-2.5 text-[0.9375rem] text-ink transition-colors placeholder:text-ink-faint hover:border-line-strong focus:border-accent focus:bg-panel read-only:opacity-60"
         />
 
         <button
@@ -191,7 +216,7 @@ export function Composer({
       </div>
 
       <p className="mt-2 text-xs text-ink-faint">
-        Enter — отправить, Shift + Enter — новая строка. Файл можно перетащить сюда мышью.
+        Enter — отправить, Shift + Enter — новая строка. Файл можно перетащить сюда или вставить через Ctrl + V.
       </p>
     </form>
   );
