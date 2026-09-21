@@ -3,6 +3,7 @@
 import { revalidatePath } from "next/cache";
 import { assignConversation } from "@/lib/assignment";
 import { messageEvents } from "@/lib/events";
+import { returnConversationToBot } from "@/lib/ai-bot-store";
 import { requireUser } from "@/lib/session";
 
 export type AssignState = { error: string } | null;
@@ -33,4 +34,15 @@ export async function assignAction(_prev: AssignState, data: FormData): Promise<
   messageEvents.emit("update", { conversationId });
   revalidatePath("/", "layout");
   return null;
+}
+
+/** Кнопка «Вернуть боту»: ИИ-помощник снова отвечает клиенту в этом диалоге. */
+export async function returnToBotAction(data: FormData): Promise<void> {
+  const { organization } = await requireUser();
+  const conversationId = String(data.get("conversationId") ?? "");
+
+  if (await returnConversationToBot(organization.id, conversationId)) {
+    messageEvents.emit("update", { conversationId });
+    revalidatePath("/", "layout");
+  }
 }
