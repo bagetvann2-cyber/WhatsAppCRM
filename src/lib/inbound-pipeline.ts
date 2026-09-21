@@ -4,7 +4,7 @@ import { runAiBot } from "@/lib/ai-bot-store";
 import { runAutomation } from "@/lib/automation-store";
 import { ensureMediaFile } from "@/lib/media-store";
 import { notifyConversationUpdate } from "@/lib/notify";
-import type { ProcessMessageJob } from "@/lib/queue";
+import { enqueueRunBot, type ProcessMessageJob } from "@/lib/queue";
 import { handleUnsubscribeMessage, UNSUBSCRIBE_CONFIRMATION } from "@/lib/unsubscribe";
 
 /**
@@ -68,6 +68,26 @@ export async function processInboundMessage(job: ProcessMessageJob): Promise<voi
 
   if (reply) {
     await notifyConversationUpdate(job.conversationId);
+    return;
+  }
+
+  // Бот отвечает не сразу: клиент часто пишет мысль в три сообщения подряд
+  // («привет» / «хочу заказать» / «пиццу»), и на каждое отвечать не нужно.
+  await enqueueRunBot(job);
+}
+
+/**
+ * Ответ бота, отложенный на паузу в переписке. Если после этого сообщения клиент
+ * успел написать ещё — пропускаем: на серию ответит задание последнего сообщения,
+ * а бот увидит в истории всё, что клиент написал.
+ */
+export async function runBotForMessage(job: ProcessMessageJob): Promise<void> {
+  const latest = await prisma.message.findFirst({
+    where: { conversationId: job.conversationId, direction: "INBOUND" },
+    orderBy: [{ timestamp: "desc" }, { createdAt: "desc" }],
+    select: { id: true },
+  });
+  if (latest && latest.id !== job.messageId) {
     return;
   }
 

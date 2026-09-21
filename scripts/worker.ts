@@ -6,12 +6,13 @@
  * Запуск:
  *   npm run worker
  */
-import { processInboundMessage } from "@/lib/inbound-pipeline";
-import { workProcessMessage } from "@/lib/queue";
+import { processInboundMessage, runBotForMessage } from "@/lib/inbound-pipeline";
+import { workProcessMessage, workRunBot } from "@/lib/queue";
 
 async function main() {
   await workProcessMessage(processInboundMessage);
-  console.log("worker: слушаю очередь process-message");
+  await workRunBot(runBotForMessage);
+  console.log("worker: слушаю очереди process-message и run-bot");
 }
 
 main().catch((error) => {
