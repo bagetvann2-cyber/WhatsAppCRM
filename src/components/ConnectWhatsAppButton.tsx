@@ -14,7 +14,6 @@ declare global {
         params: Record<string, unknown>,
       ) => void;
     };
-    fbAsyncInit?: () => void;
   }
 }
 
@@ -47,12 +46,10 @@ export function ConnectWhatsAppButton({
   const [status, setStatus] = useState<Status>({ kind: "idle" });
   const pending = useRef<{ phoneNumberId?: string; wabaId?: string }>({});
 
-  useEffect(() => {
-    window.fbAsyncInit = () => {
-      window.FB?.init({ appId, autoLogAppEvents: true, xfbml: true, version: graphVersion });
-      setSdkReady(true);
-    };
-  }, [appId, graphVersion]);
+  function onSdkLoad() {
+    window.FB?.init({ appId, autoLogAppEvents: true, xfbml: true, version: graphVersion });
+    setSdkReady(true);
+  }
 
   useEffect(() => {
     function onMessage(event: MessageEvent) {
@@ -146,7 +143,11 @@ export function ConnectWhatsAppButton({
 
   return (
     <div className="flex flex-col gap-3">
-      <Script src="https://connect.facebook.net/en_US/sdk.js" strategy="afterInteractive" />
+      <Script
+        src="https://connect.facebook.net/en_US/sdk.js"
+        strategy="afterInteractive"
+        onLoad={onSdkLoad}
+      />
 
       <button
         type="button"
