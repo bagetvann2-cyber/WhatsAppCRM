@@ -48,7 +48,16 @@ export function ConnectWhatsAppButton({
   const pending = useRef<{ phoneNumberId?: string; wabaId?: string }>({});
 
   function onSdkLoad() {
+    // eslint-disable-next-line no-console
+    console.log("[wa-debug] onSdkLoad", {
+      appId,
+      graphVersion,
+      hasFB: !!window.FB,
+      initType: typeof window.FB?.init,
+    });
     window.FB?.init({ appId, autoLogAppEvents: true, xfbml: true, version: graphVersion });
+    // eslint-disable-next-line no-console
+    console.log("[wa-debug] after init call");
     setSdkReady(true);
   }
 
@@ -103,6 +112,12 @@ export function ConnectWhatsAppButton({
     }
     pending.current = {};
     setStatus({ kind: "connecting" });
+    // eslint-disable-next-line no-console
+    console.log("[wa-debug] connect() click", {
+      sdkReady,
+      configId,
+      loginType: typeof window.FB?.login,
+    });
 
     // FB SDK проверяет, что колбэк — обычная функция: async-функция,
     // переданная напрямую, роняет SDK с «Expression is of type
