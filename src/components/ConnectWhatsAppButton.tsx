@@ -14,6 +14,7 @@ declare global {
         params: Record<string, unknown>,
       ) => void;
     };
+    fbAsyncInit?: () => void;
   }
 }
 
@@ -50,6 +51,18 @@ export function ConnectWhatsAppButton({
     window.FB?.init({ appId, autoLogAppEvents: true, xfbml: true, version: graphVersion });
     setSdkReady(true);
   }
+
+  useEffect(() => {
+    // SDK-скрипт лежит в исходном HTML (strategy="afterInteractive") и на проде
+    // успевает выполниться до того, как этот компонент смонтируется и повесит
+    // onLoad — тогда Script.onLoad никогда не срабатывает. Проверяем оба случая:
+    // SDK уже готов — инициализируем сразу; ещё грузится — ждём его же колбэк.
+    if (window.FB) {
+      onSdkLoad();
+    } else {
+      window.fbAsyncInit = onSdkLoad;
+    }
+  }, []);
 
   useEffect(() => {
     function onMessage(event: MessageEvent) {
@@ -143,11 +156,7 @@ export function ConnectWhatsAppButton({
 
   return (
     <div className="flex flex-col gap-3">
-      <Script
-        src="https://connect.facebook.net/en_US/sdk.js"
-        strategy="afterInteractive"
-        onLoad={onSdkLoad}
-      />
+      <Script src="https://connect.facebook.net/en_US/sdk.js" strategy="afterInteractive" />
 
       <button
         type="button"
