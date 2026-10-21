@@ -1,5 +1,5 @@
 import { afterAll, beforeEach, expect, test, vi } from "vitest";
-import { countUnsubscribes, createBroadcast, runBroadcast, selectRecipients } from "@/lib/broadcasts";
+import { countUnsubscribes, createBroadcast, selectRecipients } from "@/lib/broadcasts";
 import { prisma } from "@/lib/db";
 import { saveIncomingMessage } from "@/lib/ingest";
 import {
@@ -8,7 +8,11 @@ import {
   isUnsubscribeRequest,
   setUnsubscribed,
 } from "@/lib/unsubscribe";
-import { createTestOrg, dropTestOrg } from "./helpers";
+import { createTestOrg, dropTestOrg, launchBroadcast } from "./helpers";
+
+// Очередь в тестах не нужна: отправку вызываем напрямую, как это сделал бы воркер.
+const enqueueMock = vi.hoisted(() => vi.fn());
+vi.mock("@/lib/queue", () => ({ enqueueRunBroadcast: enqueueMock }));
 
 const phoneNumberId = "PNID-UNSUB";
 let organizationId: string;
@@ -184,7 +188,7 @@ test("служебная рассылка уходит и отписавшимс
     name: "Напоминание о записи",
   });
 
-  await runBroadcast(organizationId, broadcast.id);
+  await launchBroadcast(organizationId, broadcast.id);
   expect(sendMock).toHaveBeenCalledTimes(2);
 });
 
@@ -206,7 +210,7 @@ test("отписка между созданием и запуском проп�
     source: "написал сам",
   });
 
-  await runBroadcast(organizationId, broadcast.id);
+  await launchBroadcast(organizationId, broadcast.id);
 
   const recipients = await prisma.broadcastRecipient.findMany({
     where: { broadcastId: broadcast.id },

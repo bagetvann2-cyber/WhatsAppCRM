@@ -141,10 +141,29 @@ export async function saveIncomingMessage(message: ChannelIncomingMessage): Prom
   };
 }
 
+/**
+ * Какие текущие статусы нельзя затирать новым: вебхуки приходят не по порядку,
+ * и опоздавший delivered не должен откатить уже пришедший read.
+ * Порядок sent < delivered < read; failed применяется всегда, кроме read.
+ */
+const PROTECTED_STATUSES: Record<string, string[]> = {
+  sent: ["delivered", "read"],
+  delivered: ["delivered", "read"],
+  read: [],
+  failed: ["read"],
+};
+
 /** Обновляет статус доставки. Статус может прийти раньше, чем мы узнали о сообщении. */
 export async function applyStatusUpdate(update: ChannelStatusUpdate): Promise<void> {
+  const protectedStatuses = PROTECTED_STATUSES[update.status] ?? [];
   await prisma.message.updateMany({
-    where: { externalMessageId: update.externalMessageId },
+    where: {
+      externalMessageId: update.externalMessageId,
+      // status бывает null (входящие), а NOT IN в SQL такие строки отбрасывает.
+      ...(protectedStatuses.length > 0
+        ? { OR: [{ status: null }, { status: { notIn: protectedStatuses } }] }
+        : {}),
+    },
     data: { status: update.status },
   });
 

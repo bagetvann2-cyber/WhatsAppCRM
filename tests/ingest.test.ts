@@ -140,3 +140,57 @@ test("статус для неизвестного externalMessageId не бро
     applyStatusUpdate({ externalMessageId: "wamid.NOPE", status: "read", timestamp: new Date() }),
   ).resolves.toBeUndefined();
 });
+
+test("опоздавший delivered не откатывает read, а failed не затирает read", async () => {
+  await saveIncomingMessage(base);
+  const conversation = await prisma.conversation.findFirstOrThrow({ where: { organizationId } });
+  await prisma.message.create({
+    data: {
+      externalMessageId: "wamid.STATUS.ORDER",
+      channelId,
+      conversationId: conversation.id,
+      direction: "OUTBOUND",
+      type: "text",
+      text: "Ответ",
+      status: "sent",
+      timestamp: new Date("2026-08-16T09:01:00Z"),
+    },
+  });
+  const statusOf = async () =>
+    (await prisma.message.findFirstOrThrow({ where: { externalMessageId: "wamid.STATUS.ORDER" } })).status;
+  const at = new Date();
+
+  await applyStatusUpdate({ externalMessageId: "wamid.STATUS.ORDER", status: "read", timestamp: at });
+  await applyStatusUpdate({ externalMessageId: "wamid.STATUS.ORDER", status: "delivered", timestamp: at });
+  expect(await statusOf()).toBe("read");
+
+  await applyStatusUpdate({ externalMessageId: "wamid.STATUS.ORDER", status: "failed", timestamp: at });
+  expect(await statusOf()).toBe("read");
+});
+
+test("статус растёт sent -> delivered, а failed применяется к непрочитанному", async () => {
+  await saveIncomingMessage(base);
+  const conversation = await prisma.conversation.findFirstOrThrow({ where: { organizationId } });
+  await prisma.message.create({
+    data: {
+      externalMessageId: "wamid.STATUS.GROW",
+      channelId,
+      conversationId: conversation.id,
+      direction: "OUTBOUND",
+      type: "text",
+      text: "Ответ",
+      status: "sent",
+      timestamp: new Date("2026-08-16T09:01:00Z"),
+    },
+  });
+  const statusOf = async () =>
+    (await prisma.message.findFirstOrThrow({ where: { externalMessageId: "wamid.STATUS.GROW" } })).status;
+  const at = new Date();
+
+  await applyStatusUpdate({ externalMessageId: "wamid.STATUS.GROW", status: "delivered", timestamp: at });
+  expect(await statusOf()).toBe("delivered");
+  await applyStatusUpdate({ externalMessageId: "wamid.STATUS.GROW", status: "sent", timestamp: at });
+  expect(await statusOf()).toBe("delivered");
+  await applyStatusUpdate({ externalMessageId: "wamid.STATUS.GROW", status: "failed", timestamp: at });
+  expect(await statusOf()).toBe("failed");
+});

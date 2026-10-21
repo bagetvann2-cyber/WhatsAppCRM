@@ -31,7 +31,7 @@ export async function assignAction(_prev: AssignState, data: FormData): Promise<
   }
 
   // Список диалогов у коллег обновится сам: у них открыт тот же поток событий.
-  messageEvents.emit("update", { conversationId });
+  messageEvents.emit("update", { conversationId, organizationId: organization.id });
   revalidatePath("/", "layout");
   return null;
 }
@@ -42,7 +42,7 @@ export async function returnToBotAction(data: FormData): Promise<void> {
   const conversationId = String(data.get("conversationId") ?? "");
 
   if (await returnConversationToBot(organization.id, conversationId)) {
-    messageEvents.emit("update", { conversationId });
+    messageEvents.emit("update", { conversationId, organizationId: organization.id });
     revalidatePath("/", "layout");
   }
 }

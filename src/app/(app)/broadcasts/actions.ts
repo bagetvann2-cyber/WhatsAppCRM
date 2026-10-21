@@ -3,7 +3,8 @@
 import { revalidatePath } from "next/cache";
 import { requireUser } from "@/lib/session";
 import { canManageTeam } from "@/lib/team";
-import { createBroadcast, runBroadcast, stopBroadcast } from "@/lib/broadcasts";
+import { prisma } from "@/lib/db";
+import { createBroadcast, startBroadcast, stopBroadcast } from "@/lib/broadcasts";
 
 export type FormState = { error: string } | { ok: true } | null;
 
@@ -18,6 +19,7 @@ export async function createBroadcastAction(_prev: FormState, data: FormData): P
     return { error: "Запускать рассылки может владелец или администратор." };
   }
 
+  let broadcastId: string;
   try {
     const broadcast = await createBroadcast({
       organizationId: organization.id,
@@ -26,11 +28,21 @@ export async function createBroadcastAction(_prev: FormState, data: FormData): P
       segmentQuery: text(data, "segmentQuery"),
       segmentTagIds: [text(data, "segmentTagId")].filter(Boolean),
     });
-
-    // Отправка идёт в фоне: страница не должна ждать всю очередь.
-    void runBroadcast(organization.id, broadcast.id).catch(() => {});
+    broadcastId = broadcast.id;
   } catch (error) {
     return { error: error instanceof Error ? error.message : "Не удалось создать рассылку." };
+  }
+
+  // Отправку делает воркер; здесь только проверки и постановка в очередь.
+  try {
+    await startBroadcast(organization.id, broadcastId);
+  } catch (error) {
+    // Запуск не удался — черновик не оставляем, иначе в списке повиснет мёртвая рассылка
+    // (получатели уйдут каскадом).
+    await prisma.broadcast.deleteMany({
+      where: { id: broadcastId, organizationId: organization.id, status: "DRAFT" },
+    });
+    return { error: error instanceof Error ? error.message : "Не удалось запустить рассылку." };
   }
 
   revalidatePath("/broadcasts");

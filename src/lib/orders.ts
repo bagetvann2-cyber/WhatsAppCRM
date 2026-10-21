@@ -62,8 +62,14 @@ export function cleanOrderFields(
   return clean;
 }
 
+/** Русский Excel делит столбцы точкой с запятой: с запятой вся строка ляжет в одну ячейку. */
+const CSV_SEPARATOR = ";";
+
 function csvCell(value: string): string {
-  return /[",\n]/.test(value) ? `"${value.replace(/"/g, '""')}"` : value;
+  // Имя контакта и поля заказа пишет клиент: «=HYPERLINK(...)» Excel исполнил бы
+  // как формулу. Апостроф в начале превращает ячейку в обычный текст.
+  const safe = /^[=+\-@\t\r]/.test(value) ? `'${value}` : value;
+  return /[";,\r\n]/.test(safe) ? `"${safe.replace(/"/g, '""')}"` : safe;
 }
 
 export type OrderCsvRow = {
@@ -76,7 +82,7 @@ export type OrderCsvRow = {
 /** CSV с BOM — без него Excel на Windows показывает кириллицу кракозябрами. */
 export function buildOrdersCsv(fieldDefs: OrderFieldDef[], rows: OrderCsvRow[]): string {
   const header = ["Контакт", "Статус", "Создан", ...fieldDefs.map((field) => field.label)];
-  const lines = [header.map(csvCell).join(",")];
+  const lines = [header.map(csvCell).join(CSV_SEPARATOR)];
 
   for (const row of rows) {
     const cells = [
@@ -88,7 +94,7 @@ export function buildOrdersCsv(fieldDefs: OrderFieldDef[], rows: OrderCsvRow[]):
         return value === undefined || value === null ? "" : String(value);
       }),
     ];
-    lines.push(cells.map(csvCell).join(","));
+    lines.push(cells.map(csvCell).join(CSV_SEPARATOR));
   }
 
   return "﻿" + lines.join("\r\n");

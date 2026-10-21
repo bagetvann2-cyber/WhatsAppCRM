@@ -1,7 +1,7 @@
 import { Client } from "pg";
 import { prisma } from "@/lib/db";
 import { env } from "@/lib/env";
-import { messageEvents } from "@/lib/events";
+import { messageEvents, type MessageUpdateEvent } from "@/lib/events";
 
 /**
  * Мост между процессами: воркер обрабатывает сообщение в отдельном процессе
@@ -13,9 +13,26 @@ import { messageEvents } from "@/lib/events";
 const CHANNEL = "message_events";
 
 /** Эмитит локально (для SSE-соединений в этом же процессе) и публикует всем остальным. */
-export async function notifyConversationUpdate(conversationId: string | null): Promise<void> {
-  messageEvents.emit("update", { conversationId });
-  await prisma.$executeRaw`SELECT pg_notify(${CHANNEL}, ${conversationId ?? ""})`;
+export async function notifyConversationUpdate(
+  organizationId: string | null,
+  conversationId: string | null,
+): Promise<void> {
+  const event: MessageUpdateEvent = { conversationId, organizationId };
+  messageEvents.emit("update", event);
+  await prisma.$executeRaw`SELECT pg_notify(${CHANNEL}, ${JSON.stringify(event)})`;
+}
+
+function parseEvent(payload: string | undefined): MessageUpdateEvent {
+  try {
+    const data = JSON.parse(payload ?? "") as Partial<MessageUpdateEvent>;
+    return {
+      conversationId: typeof data.conversationId === "string" ? data.conversationId : null,
+      organizationId: typeof data.organizationId === "string" ? data.organizationId : null,
+    };
+  } catch {
+    // Непонятный payload — безопаснее считать событие широковещательным.
+    return { conversationId: null, organizationId: null };
+  }
 }
 
 let listenClient: Client | undefined;
@@ -30,7 +47,7 @@ export async function startMessageEventsListener(): Promise<void> {
   listenClient = client;
 
   client.on("notification", (message) => {
-    messageEvents.emit("update", { conversationId: message.payload || null });
+    messageEvents.emit("update", parseEvent(message.payload));
   });
   // Обрыв слушающего подключения не должен ронять процесс — переподключение
   // не критично: SSE и так держит keep-alive пинг раз в 25с у клиента.

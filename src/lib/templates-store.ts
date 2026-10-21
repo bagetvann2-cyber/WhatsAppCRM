@@ -111,9 +111,19 @@ export async function applyTemplateUpdate(update: TemplateUpdate): Promise<void>
   });
 
   if (updated.count === 0 && update.name) {
-    await prisma.messageTemplate.updateMany({
-      where: { name: update.name, language: update.language },
-      data: { status, rejectedReason: update.reason, metaId: update.metaId || undefined },
+    // Имя шаблона генерируется из текста, у разных компаний оно легко совпадает.
+    // Поэтому запасной путь — только если кандидат ровно один и ещё без metaId;
+    // иначе статус одной компании перетечёт в другую.
+    const candidates = await prisma.messageTemplate.findMany({
+      where: { name: update.name, language: update.language, metaId: null },
+      select: { id: true },
+      take: 2,
     });
+    if (candidates.length === 1) {
+      await prisma.messageTemplate.update({
+        where: { id: candidates[0].id },
+        data: { status, rejectedReason: update.reason, metaId: update.metaId || undefined },
+      });
+    }
   }
 }

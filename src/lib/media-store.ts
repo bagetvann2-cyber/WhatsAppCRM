@@ -3,6 +3,7 @@ import { basename, join, resolve } from "node:path";
 import { prisma } from "@/lib/db";
 import { env } from "@/lib/env";
 import { extensionFor } from "@/lib/media";
+import { whatsAppCredentials } from "@/lib/channels/whatsapp";
 import { downloadMedia, fetchMediaMeta } from "@/lib/whatsapp/media";
 
 /**
@@ -72,7 +73,14 @@ export type MediaResult =
 export async function ensureMediaFile(messageId: string): Promise<MediaResult> {
   const message = await prisma.message.findUnique({
     where: { id: messageId },
-    select: { id: true, mediaId: true, mediaPath: true, mimeType: true, filename: true },
+    select: {
+      id: true,
+      mediaId: true,
+      mediaPath: true,
+      mimeType: true,
+      filename: true,
+      channel: { select: { type: true, externalId: true, credentialsEncrypted: true } },
+    },
   });
 
   if (!message) {
@@ -87,9 +95,15 @@ export async function ensureMediaFile(messageId: string): Promise<MediaResult> {
     return { ok: false, error: "У сообщения нет вложения" };
   }
 
+  // mediaId других каналов (file_id Telegram) Meta не поймёт — к ней не ходим.
+  if (message.channel.type !== "WHATSAPP") {
+    return { ok: false, error: "Скачивание вложений из этого канала пока не поддерживается" };
+  }
+
   try {
-    const meta = await fetchMediaMeta(message.mediaId);
-    const { bytes, mimeType } = await downloadMedia(meta.url, env.mediaMaxBytes());
+    const creds = whatsAppCredentials(message.channel);
+    const meta = await fetchMediaMeta(creds, message.mediaId);
+    const { bytes, mimeType } = await downloadMedia(creds, meta.url, env.mediaMaxBytes());
 
     const type = message.mimeType ?? meta.mimeType ?? mimeType;
     const name = `${message.id}.${extensionFor(type, message.filename)}`;

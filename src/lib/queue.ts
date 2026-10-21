@@ -11,6 +11,14 @@ import { env } from "@/lib/env";
 export const QUEUE_PROCESS_MESSAGE = "process-message";
 /** Ответ ИИ-помощника — отдельное задание с задержкой: клиент часто пишет фразу в несколько сообщений. */
 export const QUEUE_RUN_BOT = "run-bot";
+/** Отправка рассылки: одно долгое задание на всю рассылку, а не на каждого получателя. */
+export const QUEUE_RUN_BROADCAST = "run-broadcast";
+/**
+ * Сколько задание рассылки может быть активным. Пауза 120 мс × тысячи получателей —
+ * это часы; со стандартными 15 минутами pg-boss счёл бы его зависшим
+ * и запустил второй экземпляр параллельно.
+ */
+const BROADCAST_EXPIRE_SECONDS = 12 * 3600;
 /** Сколько ждать тишины от клиента, прежде чем бот ответит на всю серию сообщений. */
 export const BOT_DEBOUNCE_SECONDS = 6;
 
@@ -38,6 +46,7 @@ async function getBoss(): Promise<PgBoss> {
       .then(async (boss) => {
         await boss.createQueue(QUEUE_PROCESS_MESSAGE);
         await boss.createQueue(QUEUE_RUN_BOT);
+        await boss.createQueue(QUEUE_RUN_BROADCAST, { expireInSeconds: BROADCAST_EXPIRE_SECONDS });
         return boss;
       });
   }
@@ -90,4 +99,32 @@ export async function workRunBot(handler: (job: ProcessMessageJob) => Promise<vo
       await handler(job.data);
     },
   );
+}
+
+export type RunBroadcastJob = { organizationId: string; broadcastId: string };
+
+/** Ставит рассылку на отправку в воркере. singletonKey — на случай двойной постановки. */
+export async function enqueueRunBroadcast(job: RunBroadcastJob): Promise<void> {
+  const boss = await getBoss();
+  await boss.send(QUEUE_RUN_BROADCAST, job, {
+    singletonKey: job.broadcastId,
+    expireInSeconds: BROADCAST_EXPIRE_SECONDS,
+  });
+}
+
+/** Рассылки идут по одной за раз на воркер: Meta режет всплески, параллель только мешает. */
+export async function workRunBroadcast(handler: (job: RunBroadcastJob) => Promise<void>): Promise<void> {
+  const boss = await getBoss();
+  await boss.work<RunBroadcastJob>(QUEUE_RUN_BROADCAST, async ([job]) => {
+    await handler(job.data);
+  });
+}
+
+/** Корректная остановка воркера: дожидается текущих заданий, чтобы не оставлять их «активными». */
+export async function stopQueue(): Promise<void> {
+  const boss = globalForBoss.boss;
+  if (!boss) {
+    return;
+  }
+  await boss.stop({ graceful: true, timeout: 30_000 });
 }

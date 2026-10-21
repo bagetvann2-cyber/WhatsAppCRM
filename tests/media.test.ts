@@ -1,10 +1,11 @@
 import { afterAll, beforeEach, expect, test, vi } from "vitest";
 import { prisma } from "@/lib/db";
+import { encryptJson } from "@/lib/crypto";
 import { saveIncomingMessage } from "@/lib/ingest";
 import { downloadName, extensionFor, mediaKind, mediaLabel, sizeLabel } from "@/lib/media";
 import { ensureMediaFile, findMediaMessage, readMediaFile } from "@/lib/media-store";
 import { parseWebhook } from "@/lib/whatsapp/parse";
-import { createTestOrg, dropTestOrg } from "./helpers";
+import { createTestOrg, createTestTelegramOrg, dropTestOrg, dropTestTelegramOrg } from "./helpers";
 
 const phoneNumberId = "PNID-MEDIA";
 const waId = "77015550011";
@@ -255,4 +256,53 @@ test("сбой скачивания не теряет сообщение и об
   expect(stored.text).toBe("Снимок");
   // Идентификатор у Meta остался — попытку можно повторить позже.
   expect(stored.mediaId).toBe("MEDIA-1");
+});
+
+test("вложение качается ключами канала компании, а не платформы", async () => {
+  const { messageId } = await incomingPhoto();
+  await prisma.channel.updateMany({
+    where: { externalId: phoneNumberId },
+    data: { credentialsEncrypted: encryptJson({ accessToken: "TOKEN-КАНАЛА", phoneNumberId }) },
+  });
+
+  metaMock.mockResolvedValue({ url: "https://lookaside.test/file", mimeType: "image/jpeg", size: 3 });
+  downloadMock.mockResolvedValue({ bytes: new Uint8Array([1]), mimeType: "image/jpeg" });
+
+  await ensureMediaFile(messageId);
+
+  const creds = { accessToken: "TOKEN-КАНАЛА", phoneNumberId };
+  expect(metaMock).toHaveBeenCalledWith(creds, "MEDIA-1");
+  expect(downloadMock).toHaveBeenCalledWith(creds, "https://lookaside.test/file", expect.any(Number));
+});
+
+test("вложение не из WhatsApp не уходит в Meta", async () => {
+  // Отдельная компания с Telegram-ботом: менять тип общего канала нельзя —
+  // упавший посередине тест оставил бы базу в чужом состоянии.
+  const botId = "TG-MEDIA-BOT";
+  await dropTestTelegramOrg(botId);
+  await createTestTelegramOrg(botId);
+  try {
+    const result = await saveIncomingMessage({
+      channelType: "TELEGRAM",
+      channelExternalId: botId,
+      externalMessageId: "TG.MEDIA.1",
+      from: "100500",
+      profileName: "Клиент",
+      type: "image",
+      text: null,
+      media: { mediaId: "TG-FILE-1", mimeType: "image/jpeg", filename: null, size: null, voice: false },
+      timestamp: new Date(),
+    });
+    if (!result.stored) {
+      throw new Error("сообщение должно сохраниться");
+    }
+
+    expect(await ensureMediaFile(result.messageId)).toEqual({
+      ok: false,
+      error: "Скачивание вложений из этого канала пока не поддерживается",
+    });
+    expect(metaMock).not.toHaveBeenCalled();
+  } finally {
+    await dropTestTelegramOrg(botId);
+  }
 });

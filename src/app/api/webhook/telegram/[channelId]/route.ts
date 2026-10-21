@@ -1,3 +1,4 @@
+import crypto from "node:crypto";
 import { prisma } from "@/lib/db";
 import { telegramCredentials } from "@/lib/channels/telegram";
 import { messageEvents } from "@/lib/events";
@@ -33,7 +34,10 @@ export async function POST(
     return new Response("Forbidden", { status: 403 });
   }
 
-  if (request.headers.get("x-telegram-bot-api-secret-token") !== secret) {
+  // Сравнение за постоянное время, чтобы секрет нельзя было подобрать по задержке.
+  const received = Buffer.from(request.headers.get("x-telegram-bot-api-secret-token") ?? "", "utf8");
+  const expected = Buffer.from(secret, "utf8");
+  if (received.length !== expected.length || !crypto.timingSafeEqual(received, expected)) {
     return new Response("Forbidden", { status: 403 });
   }
 
@@ -51,7 +55,10 @@ export async function POST(
 
   const result = await saveIncomingMessage(message);
   if (result.stored && result.created) {
-    messageEvents.emit("update", { conversationId: result.conversationId });
+    messageEvents.emit("update", {
+      conversationId: result.conversationId,
+      organizationId: result.organizationId,
+    });
 
     await enqueueProcessMessage({
       messageId: result.messageId,
