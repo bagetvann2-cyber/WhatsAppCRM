@@ -33,15 +33,25 @@ test("CSV начинается с BOM и содержит заголовки и�
   ]);
 
   expect(csv.startsWith("﻿")).toBe(true);
-  expect(csv).toContain("Контакт,Статус,Создан,Товар,Количество,Размер");
-  expect(csv).toContain("Дана,Черновик");
-  expect(csv).toContain("Кроссовки,2,");
+  expect(csv).toContain("Контакт;Статус;Создан;Товар;Количество;Размер");
+  expect(csv).toContain("Дана;Черновик");
+  expect(csv).toContain("Кроссовки;2;");
 });
 
-test("значение с запятой в CSV экранируется кавычками", () => {
+test("значение с запятой или точкой с запятой в CSV экранируется кавычками", () => {
   const csv = buildOrdersCsv(fields, [
-    { contactName: "Ержан, ИП", status: "CONFIRMED", createdAt: new Date(), fields: {} },
+    { contactName: "Ержан, ИП", status: "CONFIRMED", createdAt: new Date(), fields: { f1: "XL; синий" } },
   ]);
 
   expect(csv).toContain('"Ержан, ИП"');
+  expect(csv).toContain('"XL; синий"');
+});
+
+test("формула от клиента в CSV превращается в текст", () => {
+  const csv = buildOrdersCsv(fields, [
+    { contactName: '=HYPERLINK("http://evil","жми")', status: "DRAFT", createdAt: new Date(), fields: { f1: "+77001234567" } },
+  ]);
+
+  expect(csv).toContain(`"'=HYPERLINK(""http://evil"",""жми"")"`);
+  expect(csv).toContain("'+77001234567");
 });

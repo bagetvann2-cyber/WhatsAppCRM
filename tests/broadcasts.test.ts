@@ -6,13 +6,19 @@ import {
   createBroadcast,
   estimateCost,
   listBroadcasts,
-  runBroadcast,
   selectRecipients,
+  sendBroadcast,
+  startBroadcast,
   stopBroadcast,
   valuesForContact,
 } from "@/lib/broadcasts";
+import { getSubscription } from "@/lib/billing-store";
 import { createTag, toggleTag } from "@/lib/contacts";
-import { createTestOrg, dropTestOrg } from "./helpers";
+import { createTestOrg, dropTestOrg, launchBroadcast } from "./helpers";
+
+// Очередь в тестах не нужна: отправку вызываем напрямую, как это сделал бы воркер.
+const enqueueMock = vi.hoisted(() => vi.fn());
+vi.mock("@/lib/queue", () => ({ enqueueRunBroadcast: enqueueMock }));
 
 const phoneNumberId = "PNID-CAST";
 let organizationId: string;
@@ -116,7 +122,7 @@ test("имя контакта подставляется вместо перво
 
 test("рассылка уходит с именем каждого получателя", async () => {
   const broadcast = await createBroadcast({ organizationId, templateId, name: "Именная" });
-  await runBroadcast(organizationId, broadcast.id);
+  await launchBroadcast(organizationId, broadcast.id);
 
   const names = sendMock.mock.calls.map((call) => call[3][0]);
   expect(names).toEqual(["Айгерим", "Ержан", "Дана"]);
@@ -161,7 +167,7 @@ test("рассылка по пустому сегменту не создаёт�
 
 test("запуск отправляет всем и помечает отправленными", async () => {
   const broadcast = await createBroadcast({ organizationId, templateId, name: "Акция" });
-  await runBroadcast(organizationId, broadcast.id);
+  await launchBroadcast(organizationId, broadcast.id);
 
   expect(sendMock).toHaveBeenCalledTimes(3);
   expect(sendMock.mock.calls[0][1]).toBe("77010000001");
@@ -186,7 +192,7 @@ test("ошибка отправки помечает получателя, но 
     .mockResolvedValueOnce({ wamid: "wamid.OK.2" });
 
   const broadcast = await createBroadcast({ organizationId, templateId, name: "С ошибкой" });
-  await runBroadcast(organizationId, broadcast.id);
+  await launchBroadcast(organizationId, broadcast.id);
 
   const recipients = await prisma.broadcastRecipient.findMany({
     where: { broadcastId: broadcast.id },
@@ -201,10 +207,68 @@ test("ошибка отправки помечает получателя, но 
 
 test("повторный запуск той же рассылки отклоняется", async () => {
   const broadcast = await createBroadcast({ organizationId, templateId, name: "Один раз" });
-  await runBroadcast(organizationId, broadcast.id);
+  await launchBroadcast(organizationId, broadcast.id);
 
-  await expect(runBroadcast(organizationId, broadcast.id)).rejects.toThrow(/уже запускалась/i);
+  await expect(launchBroadcast(organizationId, broadcast.id)).rejects.toThrow(/уже запускалась/i);
   expect(sendMock).toHaveBeenCalledTimes(3);
+});
+
+test("двойной startBroadcast: второй запуск с ошибкой, в очередь уходит одно задание", async () => {
+  enqueueMock.mockClear();
+  const broadcast = await createBroadcast({ organizationId, templateId, name: "Дважды" });
+
+  const results = await Promise.allSettled([
+    startBroadcast(organizationId, broadcast.id),
+    startBroadcast(organizationId, broadcast.id),
+  ]);
+
+  expect(results.filter((r) => r.status === "fulfilled")).toHaveLength(1);
+  const rejected = results.find((r) => r.status === "rejected") as PromiseRejectedResult;
+  expect(String(rejected.reason)).toMatch(/уже запускалась/i);
+  expect(enqueueMock).toHaveBeenCalledTimes(1);
+  expect(enqueueMock).toHaveBeenCalledWith({ organizationId, broadcastId: broadcast.id });
+});
+
+test("sendBroadcast не трогает рассылку, которая не в статусе RUNNING", async () => {
+  const broadcast = await createBroadcast({ organizationId, templateId, name: "Черновик" });
+
+  await sendBroadcast(organizationId, broadcast.id);
+
+  expect(sendMock).not.toHaveBeenCalled();
+  const after = await prisma.broadcast.findUniqueOrThrow({ where: { id: broadcast.id } });
+  expect(after.status).toBe("DRAFT");
+});
+
+test("повторный запуск задания продолжает с оставшихся получателей", async () => {
+  const broadcast = await createBroadcast({ organizationId, templateId, name: "Продолжение" });
+  await startBroadcast(organizationId, broadcast.id);
+
+  const [first] = await prisma.broadcastRecipient.findMany({
+    where: { broadcastId: broadcast.id },
+    orderBy: { id: "asc" },
+  });
+  await prisma.broadcastRecipient.update({ where: { id: first.id }, data: { status: "SENT" } });
+
+  await sendBroadcast(organizationId, broadcast.id);
+
+  expect(sendMock).toHaveBeenCalledTimes(2);
+});
+
+test("просроченная подписка запрещает запуск рассылки", async () => {
+  await getSubscription(organizationId);
+  await prisma.subscription.update({
+    where: { organizationId },
+    data: { status: "TRIAL", trialEndsAt: new Date(Date.now() - 24 * 3600 * 1000) },
+  });
+
+  const broadcast = await createBroadcast({ organizationId, templateId, name: "Просрочено" });
+
+  await expect(startBroadcast(organizationId, broadcast.id)).rejects.toThrow(/Подписка не оплачена/);
+  const after = await prisma.broadcast.findUniqueOrThrow({ where: { id: broadcast.id } });
+  expect(after.status).toBe("DRAFT");
+
+  // Компания общая на весь файл: остальным тестам нужна действующая подписка.
+  await prisma.subscription.update({ where: { organizationId }, data: { trialEndsAt: null } });
 });
 
 test("остановка помечает причину и время", async () => {
@@ -234,7 +298,7 @@ test("чужую рассылку остановить нельзя", async () =
 
 test("статусы доставки из вебхука попадают в отчёт", async () => {
   const broadcast = await createBroadcast({ organizationId, templateId, name: "Отчёт" });
-  await runBroadcast(organizationId, broadcast.id);
+  await launchBroadcast(organizationId, broadcast.id);
 
   const first = await prisma.broadcastRecipient.findFirstOrThrow({
     where: { broadcastId: broadcast.id },
@@ -259,7 +323,7 @@ test("статусы доставки из вебхука попадают в о
 
 test("сводка по статусам считается для отчёта", async () => {
   const broadcast = await createBroadcast({ organizationId, templateId, name: "Сводка" });
-  await runBroadcast(organizationId, broadcast.id);
+  await launchBroadcast(organizationId, broadcast.id);
 
   const [item] = await listBroadcasts(organizationId);
   expect(countByStatus(item.recipients)).toEqual({

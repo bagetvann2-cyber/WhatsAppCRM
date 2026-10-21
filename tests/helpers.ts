@@ -58,3 +58,13 @@ export async function dropTestTelegramOrg(botId: string) {
     await prisma.organization.deleteMany({ where: { id: channel.organizationId } });
   }
 }
+
+/**
+ * Запуск рассылки как в бою: startBroadcast (проверки + захват) и затем sendBroadcast,
+ * который в проде делает воркер. Очередь в тестовом файле должна быть замокана.
+ */
+export async function launchBroadcast(organizationId: string, id: string) {
+  const { startBroadcast, sendBroadcast } = await import("@/lib/broadcasts");
+  await startBroadcast(organizationId, id);
+  await sendBroadcast(organizationId, id);
+}

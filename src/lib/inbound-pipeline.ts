@@ -19,7 +19,7 @@ export async function processInboundMessage(job: ProcessMessageJob): Promise<voi
   // Не получилось — не беда, вложение докачается при первом открытии.
   if (job.hasMedia) {
     await ensureMediaFile(job.messageId);
-    await notifyConversationUpdate(job.conversationId);
+    await notifyConversationUpdate(job.organizationId, job.conversationId);
   }
 
   // Отписка идёт первой и глушит остальных: на «стоп» клиент должен
@@ -54,7 +54,7 @@ export async function processInboundMessage(job: ProcessMessageJob): Promise<voi
       // Подтверждение не ушло — сама отписка уже сохранена, это главное.
     }
 
-    await notifyConversationUpdate(job.conversationId);
+    await notifyConversationUpdate(job.organizationId, job.conversationId);
     return;
   }
 
@@ -68,7 +68,7 @@ export async function processInboundMessage(job: ProcessMessageJob): Promise<voi
   });
 
   if (reply) {
-    await notifyConversationUpdate(job.conversationId);
+    await notifyConversationUpdate(job.organizationId, job.conversationId);
     return;
   }
 
@@ -111,7 +111,7 @@ export async function runBotForMessage(job: ProcessMessageJob): Promise<void> {
     });
 
     if (bot.status === "answered" || bot.status === "handoff") {
-      await notifyConversationUpdate(job.conversationId);
+      await notifyConversationUpdate(job.organizationId, job.conversationId);
     }
   } finally {
     typing.current?.stop();

@@ -128,3 +128,48 @@ test("повторный вызов после ошибки начинает з�
   expect(channels).toHaveLength(1);
   expect(channels[0].status).toBe("ACTIVE");
 });
+
+test("номер чужой компании: отказ без изменений в базе, обмен токена не вызывается", async () => {
+  const foreign = await createTestOrg("PNID-SIGNUP-FOREIGN");
+  try {
+    const result = await completeEmbeddedSignup({
+      organizationId,
+      code: "garbage",
+      phoneNumberId: "PNID-SIGNUP-FOREIGN",
+      wabaId: "WABA-X",
+    });
+
+    expect(result).toEqual({
+      ok: false,
+      step: "exchange_token",
+      error: "Этот номер уже подключён к другому кабинету.",
+    });
+    expect(exchangeMock).not.toHaveBeenCalled();
+
+    const channel = await prisma.channel.findUniqueOrThrow({ where: { id: foreign.channelId } });
+    expect(channel.status).toBe("ACTIVE");
+    expect(channel.organizationId).toBe(foreign.id);
+    expect(channel.statusError).toBeNull();
+  } finally {
+    await dropTestOrg("PNID-SIGNUP-FOREIGN");
+  }
+});
+
+test("переподключение своего ACTIVE-канала: провал обмена токена не переводит его в ERROR", async () => {
+  exchangeMock.mockRejectedValue(new Error("code просрочен"));
+
+  const result = await completeEmbeddedSignup({
+    organizationId,
+    code: "stale",
+    phoneNumberId,
+    wabaId: "WABA-1",
+  });
+
+  expect(result.ok).toBe(false);
+  if (result.ok) throw new Error("unreachable");
+  expect(result.step).toBe("exchange_token");
+
+  const channel = await prisma.channel.findFirstOrThrow({ where: { externalId: phoneNumberId } });
+  expect(channel.status).toBe("ACTIVE");
+  expect(channel.statusError).toContain("code просрочен");
+});

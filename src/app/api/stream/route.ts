@@ -1,16 +1,27 @@
-import { messageEvents } from "@/lib/events";
+import { messageEvents, type MessageUpdateEvent } from "@/lib/events";
+import { currentUser } from "@/lib/session";
 
 export const dynamic = "force-dynamic";
 
 export async function GET(): Promise<Response> {
+  const me = await currentUser();
+  if (!me) {
+    return new Response("Unauthorized", { status: 401 });
+  }
+  const organizationId = me.organization.id;
+
   const encoder = new TextEncoder();
 
-  let onUpdate: () => void;
+  let onUpdate: (event: MessageUpdateEvent) => void;
   let keepAlive: ReturnType<typeof setInterval>;
 
   const stream = new ReadableStream({
     start(controller) {
-      onUpdate = () => {
+      onUpdate = (event) => {
+        // Чужие события не пропускаем; null — широковещательное (статусы доставки).
+        if (event.organizationId !== null && event.organizationId !== organizationId) {
+          return;
+        }
         controller.enqueue(encoder.encode("data: update\n\n"));
       };
 

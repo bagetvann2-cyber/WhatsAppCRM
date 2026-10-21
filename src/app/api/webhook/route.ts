@@ -60,7 +60,10 @@ export async function POST(request: Request): Promise<Response> {
       continue;
     }
 
-    messageEvents.emit("update", { conversationId: result.conversationId });
+    messageEvents.emit("update", {
+      conversationId: result.conversationId,
+      organizationId: result.organizationId,
+    });
 
     // Вложение, отписка, автоответ и ИИ-бот могут дёргать внешние API
     // (WhatsApp, Claude) — это не должно задерживать ответ Meta на вебхук,
@@ -85,7 +88,7 @@ export async function POST(request: Request): Promise<Response> {
   }
 
   if (statuses.length > 0) {
-    await notifyConversationUpdate(null);
+    await notifyConversationUpdate(null, null);
   }
 
   return new Response("OK", { status: 200 });

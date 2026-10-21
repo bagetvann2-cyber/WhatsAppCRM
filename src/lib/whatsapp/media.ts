@@ -1,7 +1,8 @@
 import { env } from "@/lib/env";
+import type { WhatsAppCredentials } from "@/lib/whatsapp/client";
 
 /**
- * Работа с файлами Meta. Скачивание идёт в два шага: сначала по id получаем
+ * Работа с файлами Meta. Ключи — всегда канала компании (creds), не платформы. Скачивание идёт в два шага: сначала по id получаем
  * временную ссылку, потом качаем по ней — и обязательно с токеном, без него
  * CDN отвечает 401. Ссылка живёт минуты, поэтому её нигде не храним.
  */
@@ -20,11 +21,11 @@ async function graphError(response: Response): Promise<string> {
   return data?.error?.message ?? `Graph API вернул ${response.status}`;
 }
 
-export async function fetchMediaMeta(mediaId: string): Promise<MediaMeta> {
+export async function fetchMediaMeta(creds: WhatsAppCredentials, mediaId: string): Promise<MediaMeta> {
   const url = `https://graph.facebook.com/${env.graphVersion()}/${mediaId}`;
 
   const response = await fetch(url, {
-    headers: { Authorization: `Bearer ${env.token()}` },
+    headers: { Authorization: `Bearer ${creds.accessToken}` },
   });
 
   if (!response.ok) {
@@ -52,11 +53,12 @@ export async function fetchMediaMeta(mediaId: string): Promise<MediaMeta> {
 
 /** Качает файл по временной ссылке. Больше лимита не тянем: память не резиновая. */
 export async function downloadMedia(
+  creds: WhatsAppCredentials,
   url: string,
   maxBytes: number,
 ): Promise<{ bytes: Uint8Array; mimeType: string | null }> {
   const response = await fetch(url, {
-    headers: { Authorization: `Bearer ${env.token()}` },
+    headers: { Authorization: `Bearer ${creds.accessToken}` },
   });
 
   if (!response.ok) {
@@ -80,12 +82,12 @@ export async function downloadMedia(
 }
 
 /** Загружает файл в Meta и возвращает id, которым его можно отправить. */
-export async function uploadMedia(file: {
+export async function uploadMedia(creds: WhatsAppCredentials, file: {
   bytes: Uint8Array;
   mimeType: string;
   filename: string;
 }): Promise<{ mediaId: string }> {
-  const url = `https://graph.facebook.com/${env.graphVersion()}/${env.phoneNumberId()}/media`;
+  const url = `https://graph.facebook.com/${env.graphVersion()}/${creds.phoneNumberId}/media`;
 
   const form = new FormData();
   form.append("messaging_product", "whatsapp");
@@ -94,7 +96,7 @@ export async function uploadMedia(file: {
 
   const response = await fetch(url, {
     method: "POST",
-    headers: { Authorization: `Bearer ${env.token()}` },
+    headers: { Authorization: `Bearer ${creds.accessToken}` },
     body: form,
   });
 
@@ -112,12 +114,13 @@ export async function uploadMedia(file: {
 
 /** Отправляет уже загруженный файл. Как и текст, работает внутри 24-часового окна. */
 export async function sendMediaMessage(
+  creds: WhatsAppCredentials,
   to: string,
   kind: MediaKind,
   mediaId: string,
   extra: { caption?: string | null; filename?: string | null } = {},
 ): Promise<{ wamid: string }> {
-  const url = `https://graph.facebook.com/${env.graphVersion()}/${env.phoneNumberId()}/messages`;
+  const url = `https://graph.facebook.com/${env.graphVersion()}/${creds.phoneNumberId}/messages`;
 
   // Подпись Meta принимает только у картинок, видео и документов;
   // у аудио её нет — отправим текстом отдельным сообщением, если понадобится.
@@ -132,7 +135,7 @@ export async function sendMediaMessage(
   const response = await fetch(url, {
     method: "POST",
     headers: {
-      Authorization: `Bearer ${env.token()}`,
+      Authorization: `Bearer ${creds.accessToken}`,
       "Content-Type": "application/json",
     },
     body: JSON.stringify({

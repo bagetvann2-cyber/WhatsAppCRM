@@ -1,9 +1,10 @@
 import { prisma } from "@/lib/db";
 import { canAfford, money } from "@/lib/billing";
-import { getBalance, recordOperation } from "@/lib/billing-store";
+import { getBalance, getSubscription, isSubscriptionActive, recordOperation } from "@/lib/billing-store";
 import { contactWhere, type ContactFilter } from "@/lib/contacts";
 import { PRICE_PER_MESSAGE, estimateCost } from "@/lib/pricing";
 import { sendTemplateMessage } from "@/lib/whatsapp/client";
+import { enqueueRunBroadcast } from "@/lib/queue";
 import { whatsAppCredentials } from "@/lib/channels/whatsapp";
 
 export { PRICE_PER_MESSAGE, estimateCost } from "@/lib/pricing";
@@ -161,11 +162,11 @@ export async function stopBroadcast(
 }
 
 /**
- * Рассылает сообщения по очереди с паузой между отправками.
- * Работает в том же процессе: для боевой нагрузки очередь выносится
- * в отдельный воркер, но поведение и статусы остаются теми же.
+ * Запуск рассылки: все проверки, атомарный захват статуса и постановка в очередь.
+ * Саму отправку делает воркер (sendBroadcast) — перезапуск сервера её не обрывает.
+ * Ошибки бросает: их должен увидеть пользователь, а не проглотить фон.
  */
-export async function runBroadcast(organizationId: string, id: string): Promise<void> {
+export async function startBroadcast(organizationId: string, id: string): Promise<void> {
   const broadcast = await prisma.broadcast.findFirst({
     where: { id, organizationId },
     include: { template: true },
@@ -182,7 +183,13 @@ export async function runBroadcast(organizationId: string, id: string): Promise<
   if (!channel) {
     throw new Error("У компании нет подключённого канала WhatsApp.");
   }
-  const creds = whatsAppCredentials(channel);
+
+  const subscription = await getSubscription(organizationId);
+  if (!isSubscriptionActive(subscription)) {
+    throw new Error(
+      "Подписка не оплачена — рассылки остановлены до оплаты тарифа. Переписка с клиентами работает как обычно.",
+    );
+  }
 
   // Проверяем деньги до первой отправки: рассылка, оборвавшаяся на середине,
   // это половина клиентов с обрывком акции и объяснение по телефону остальным.
@@ -198,10 +205,48 @@ export async function runBroadcast(organizationId: string, id: string): Promise<
     );
   }
 
-  await prisma.broadcast.update({
-    where: { id: broadcast.id },
+  // Захват одним запросом: два одновременных запуска не пройдут оба.
+  const claimed = await prisma.broadcast.updateMany({
+    where: { id: broadcast.id, organizationId, status: "DRAFT" },
     data: { status: "RUNNING", startedAt: new Date() },
   });
+  if (claimed.count === 0) {
+    throw new Error("Эта рассылка уже запускалась.");
+  }
+
+  try {
+    await enqueueRunBroadcast({ organizationId, broadcastId: broadcast.id });
+  } catch (error) {
+    // Не удалось поставить в очередь — возвращаем черновик, иначе он завис бы в RUNNING.
+    await prisma.broadcast.updateMany({
+      where: { id: broadcast.id, status: "RUNNING" },
+      data: { status: "DRAFT", startedAt: null },
+    });
+    throw error;
+  }
+}
+
+/**
+ * Рассылает сообщения по очереди с паузой между отправками. Работает, только пока
+ * статус RUNNING. Повторный запуск (воркер упал и задание вернулось) продолжает
+ * с оставшихся PENDING — уже отправленным второй раз не пишем.
+ */
+export async function sendBroadcast(organizationId: string, id: string): Promise<void> {
+  const broadcast = await prisma.broadcast.findFirst({
+    where: { id, organizationId },
+    include: { template: true },
+  });
+
+  if (!broadcast || broadcast.status !== "RUNNING") {
+    return;
+  }
+
+  const channel = await prisma.channel.findFirst({ where: { organizationId, type: "WHATSAPP" } });
+  if (!channel) {
+    await stopBroadcast(organizationId, broadcast.id, "Автостоп: у компании нет канала WhatsApp.");
+    return;
+  }
+  const creds = whatsAppCredentials(channel);
 
   const pending = await prisma.broadcastRecipient.findMany({
     where: { broadcastId: broadcast.id, status: "PENDING" },

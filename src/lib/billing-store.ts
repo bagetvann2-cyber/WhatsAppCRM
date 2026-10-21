@@ -62,13 +62,9 @@ const DEFAULT_PLANS = [
 
 /** Создаёт тарифы, если их ещё нет. Существующие цены не трогает. */
 export async function ensurePlans() {
-  for (const plan of DEFAULT_PLANS) {
-    await prisma.plan.upsert({
-      where: { code: plan.code },
-      update: {},
-      create: plan,
-    });
-  }
+  // Одним INSERT ... ON CONFLICT DO NOTHING: upsert Prisma не атомарен, и два
+  // одновременных первых запроса падали на уникальности code.
+  await prisma.plan.createMany({ data: DEFAULT_PLANS, skipDuplicates: true });
 
   return prisma.plan.findMany({ where: { active: true }, orderBy: { sortOrder: "asc" } });
 }
@@ -97,8 +93,11 @@ export async function getSubscription(organizationId: string) {
   const plans = await listPlans();
   const trial = plans.find((plan) => plan.code === "trial") ?? plans[0];
 
-  return prisma.subscription.create({
-    data: { organizationId, planId: trial.id, status: "TRIAL" },
+  // Пустой update: если подписку параллельно уже завёл другой запрос, просто вернём её.
+  return prisma.subscription.upsert({
+    where: { organizationId },
+    update: {},
+    create: { organizationId, planId: trial.id, status: "TRIAL" },
     include: { plan: true },
   });
 }

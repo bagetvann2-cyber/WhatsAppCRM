@@ -1,8 +1,9 @@
 "use server";
 
 import { redirect } from "next/navigation";
-import { createSession, destroySession, registerOrganization, signIn } from "@/lib/auth";
+import { createSession, destroySession, normalizeEmail, registerOrganization, signIn } from "@/lib/auth";
 import { sendVerificationEmail } from "@/lib/email";
+import { isLoginBlocked, recordLoginFailure, resetLoginFailures } from "@/lib/rate-limit";
 import { clearSessionCookie, readSessionToken, setSessionCookie } from "@/lib/session";
 
 export type FormState = { error: string } | null;
@@ -54,12 +55,20 @@ export async function signInAction(_prev: FormState, data: FormData): Promise<Fo
     return { error: "Введите почту и пароль." };
   }
 
+  // Ключ — почта, а не IP: за прокси IP ненадёжен, а подбирают пароль к конкретному адресу.
+  const limitKey = normalizeEmail(email);
+  if (isLoginBlocked(limitKey)) {
+    return { error: "Слишком много попыток входа. Подождите 15 минут." };
+  }
+
   const user = await signIn(email, password);
   // Одна формулировка на оба случая: по тексту ошибки нельзя узнать,
   // зарегистрирован ли адрес.
   if (!user) {
+    recordLoginFailure(limitKey);
     return { error: "Неверная почта или пароль." };
   }
+  resetLoginFailures(limitKey);
   if (!user.emailVerifiedAt) {
     return { error: "Подтвердите почту по ссылке из письма — мы прислали её при регистрации." };
   }

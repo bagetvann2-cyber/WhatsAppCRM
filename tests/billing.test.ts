@@ -19,10 +19,14 @@ import {
   recordOperation,
   startTrial,
 } from "@/lib/billing-store";
-import { applyRecipientStatus, createBroadcast, runBroadcast } from "@/lib/broadcasts";
+import { applyRecipientStatus, createBroadcast } from "@/lib/broadcasts";
 import { prisma } from "@/lib/db";
 import { saveIncomingMessage } from "@/lib/ingest";
-import { createTestOrg, dropTestOrg } from "./helpers";
+import { createTestOrg, dropTestOrg, launchBroadcast } from "./helpers";
+
+// Очередь в тестах не нужна: отправку вызываем напрямую, как это сделал бы воркер.
+const enqueueMock = vi.hoisted(() => vi.fn());
+vi.mock("@/lib/queue", () => ({ enqueueRunBroadcast: enqueueMock }));
 
 const phoneNumberId = "PNID-BILL";
 let organizationId: string;
@@ -231,7 +235,7 @@ test("чужой счёт оплатить нельзя", async () => {
 test("рассылка не запускается, когда денег не хватает", async () => {
   const broadcast = await createBroadcast({ organizationId, templateId, name: "Акция" });
 
-  await expect(runBroadcast(organizationId, broadcast.id)).rejects.toThrow(/баланс/i);
+  await expect(launchBroadcast(organizationId, broadcast.id)).rejects.toThrow(/баланс/i);
   expect(sendMock).not.toHaveBeenCalled();
 
   const after = await prisma.broadcast.findUniqueOrThrow({ where: { id: broadcast.id } });
@@ -247,7 +251,7 @@ test("деньги списываются за доставленное сооб
   });
 
   const broadcast = await createBroadcast({ organizationId, templateId, name: "Акция" });
-  await runBroadcast(organizationId, broadcast.id);
+  await launchBroadcast(organizationId, broadcast.id);
 
   // Отправлено, но не доставлено — денег не берём
   expect(await getBalance(organizationId)).toBe(25000);

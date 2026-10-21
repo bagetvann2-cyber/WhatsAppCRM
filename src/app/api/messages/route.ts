@@ -5,6 +5,7 @@ import { mediaKind, sizeLabel } from "@/lib/media";
 import { storeOutgoingMedia } from "@/lib/media-store";
 import { currentUser } from "@/lib/session";
 import { sendMediaMessage, uploadMedia } from "@/lib/whatsapp/media";
+import { whatsAppCredentials } from "@/lib/channels/whatsapp";
 import { adapterFor, sendChannelText } from "@/lib/channels";
 import { isReplyWindowOpen } from "@/lib/conversation-window";
 
@@ -137,10 +138,11 @@ export async function POST(request: Request): Promise<Response> {
       if (conversation.channel.type === "WHATSAPP") {
         // Сначала файл уезжает в Meta и получает id, и только потом уходит
         // сообщение: отправить можно лишь то, что она уже приняла.
-        const uploaded = await uploadMedia(message.file);
+        const creds = whatsAppCredentials(conversation.channel);
+        const uploaded = await uploadMedia(creds, message.file);
         mediaId = uploaded.mediaId;
         externalMessageId = (
-          await sendMediaMessage(conversation.contact.externalUserId, kind, mediaId, {
+          await sendMediaMessage(creds, conversation.contact.externalUserId, kind, mediaId, {
             caption: message.caption,
             filename: message.file.filename,
           })
@@ -191,7 +193,7 @@ export async function POST(request: Request): Promise<Response> {
       data: { lastMessageAt: now },
     });
 
-    messageEvents.emit("update", { conversationId: conversation.id });
+    messageEvents.emit("update", { conversationId: conversation.id, organizationId: me.organization.id });
 
     return Response.json({ externalMessageId: sentExternalMessageId }, { status: 200 });
   } catch (error) {

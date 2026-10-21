@@ -47,22 +47,23 @@ export function ConnectWhatsAppButton({
   const [status, setStatus] = useState<Status>({ kind: "idle" });
   const pending = useRef<{ phoneNumberId?: string; wabaId?: string }>({});
 
-  function onSdkLoad() {
-    window.FB?.init({ appId, autoLogAppEvents: true, xfbml: true, version: graphVersion });
-    setSdkReady(true);
-  }
-
   useEffect(() => {
+    function onSdkLoad() {
+      window.FB?.init({ appId, autoLogAppEvents: true, xfbml: true, version: graphVersion });
+      setSdkReady(true);
+    }
+
     // SDK-скрипт лежит в исходном HTML (strategy="afterInteractive") и на проде
     // успевает выполниться до того, как этот компонент смонтируется и повесит
     // onLoad — тогда Script.onLoad никогда не срабатывает. Проверяем оба случая:
     // SDK уже готов — инициализируем сразу; ещё грузится — ждём его же колбэк.
     if (window.FB) {
-      onSdkLoad();
+      // Не синхронно: setState прямо в теле эффекта даёт лишний каскадный рендер.
+      queueMicrotask(onSdkLoad);
     } else {
       window.fbAsyncInit = onSdkLoad;
     }
-  }, []);
+  }, [appId, graphVersion]);
 
   useEffect(() => {
     function onMessage(event: MessageEvent) {
